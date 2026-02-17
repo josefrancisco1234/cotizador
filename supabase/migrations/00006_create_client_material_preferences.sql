@@ -3,13 +3,13 @@ CREATE TABLE client_material_preferences (
   tenant_id UUID NOT NULL REFERENCES tenants(id),
   client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
   family_id UUID NOT NULL REFERENCES material_families(id),
-  uso TEXT,
+  uso TEXT DEFAULT '',
   melt_index DECIMAL,
-  additives TEXT,
+  additives TEXT DEFAULT '',
   process TEXT,
   observations TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE(tenant_id, client_id, family_id, COALESCE(uso, ''), COALESCE(additives, ''))
+  UNIQUE(tenant_id, client_id, family_id, uso, additives)
 );
 
 CREATE INDEX idx_cmp_family ON client_material_preferences(family_id);

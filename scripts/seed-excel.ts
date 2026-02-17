@@ -355,9 +355,9 @@ async function main() {
       tenant_id: tenantId,
       client_id: clientId,
       family_id: familyId,
-      uso: str(row["USO"]),
+      uso: str(row["USO"]) || "",
       melt_index: row["MI"] != null ? Number(row["MI"]) || null : null,
-      additives: str(row["ADD"]),
+      additives: str(row["ADD"]) || "",
     });
   }
 
