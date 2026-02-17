@@ -2,18 +2,11 @@ import { gmail } from "./client";
 import { createAdminClient } from "../supabase/admin";
 
 const TENANT_ID = process.env.DEFAULT_TENANT_ID!;
-
-interface ProcessedEmail {
-  messageId: string;
-  from: string;
-  subject: string;
-  htmlBody: string;
-  supplierId: string | null;
-}
+const LABEL_NAME = "COTIZAR";
 
 /**
- * Check Gmail inbox for new price emails from known suppliers.
- * Returns list of processed emails.
+ * Check Gmail inbox for emails with the "COTIZAR" label.
+ * Process them and remove the label after processing.
  */
 export async function checkInboxForPriceEmails(): Promise<{
   processed: number;
@@ -25,32 +18,22 @@ export async function checkInboxForPriceEmails(): Promise<{
   let processed = 0;
   let skipped = 0;
 
-  // Get known supplier email patterns
-  const { data: suppliers } = await supabase
-    .from("suppliers")
-    .select("id, name, email_patterns")
-    .eq("tenant_id", TENANT_ID);
-
-  if (!suppliers || suppliers.length === 0) {
-    return { processed: 0, skipped: 0, errors: ["No suppliers configured"] };
-  }
-
-  // Build Gmail search query: from any supplier, unread, last 24 hours
-  const emailPatterns = suppliers.flatMap(
-    (s: { email_patterns: string[] }) => s.email_patterns || []
+  // Find the "COTIZAR" label ID
+  const labelsRes = await gmail.users.labels.list({ userId: "me" });
+  const cotizarLabel = (labelsRes.data.labels || []).find(
+    (l) => l.name === LABEL_NAME
   );
 
-  if (emailPatterns.length === 0) {
-    return { processed: 0, skipped: 0, errors: ["No supplier email patterns configured"] };
+  if (!cotizarLabel || !cotizarLabel.id) {
+    return { processed: 0, skipped: 0, errors: [`Label "${LABEL_NAME}" not found in Gmail`] };
   }
 
-  const fromQuery = emailPatterns.map((e: string) => `from:${e}`).join(" OR ");
-  const query = `(${fromQuery}) is:unread newer_than:1d`;
+  const labelId = cotizarLabel.id;
 
-  // Search for matching emails
+  // Search for emails with the "COTIZAR" label
   const listRes = await gmail.users.messages.list({
     userId: "me",
-    q: query,
+    labelIds: [labelId],
     maxResults: 20,
   });
 
@@ -83,6 +66,12 @@ export async function checkInboxForPriceEmails(): Promise<{
         .maybeSingle();
 
       if (existing) {
+        // Already processed, just remove the label
+        await gmail.users.messages.modify({
+          userId: "me",
+          id: msg.id!,
+          requestBody: { removeLabelIds: [labelId] },
+        });
         skipped++;
         continue;
       }
@@ -92,22 +81,20 @@ export async function checkInboxForPriceEmails(): Promise<{
 
       if (!htmlBody) {
         errors.push(`No HTML body found in email: ${subject}`);
+        // Remove label so it doesn't retry
+        await gmail.users.messages.modify({
+          userId: "me",
+          id: msg.id!,
+          requestBody: { removeLabelIds: [labelId] },
+        });
         continue;
       }
-
-      // Match supplier
-      const supplier = suppliers.find((s: { email_patterns: string[] }) =>
-        (s.email_patterns || []).some((pattern: string) =>
-          from.toLowerCase().includes(pattern.toLowerCase())
-        )
-      );
 
       // Create ingestion record
       const { error: insertError } = await supabase
         .from("price_ingestions")
         .insert({
           tenant_id: TENANT_ID,
-          supplier_id: supplier?.id || null,
           source_type: "email",
           source_identifier: messageId,
           source_subject: subject,
@@ -121,11 +108,11 @@ export async function checkInboxForPriceEmails(): Promise<{
         continue;
       }
 
-      // Mark email as read
+      // Remove "COTIZAR" label after successful processing
       await gmail.users.messages.modify({
         userId: "me",
         id: msg.id!,
-        requestBody: { removeLabelIds: ["UNREAD"] },
+        requestBody: { removeLabelIds: [labelId] },
       });
 
       processed++;
