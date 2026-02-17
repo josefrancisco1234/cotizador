@@ -1,0 +1,25 @@
+-- Seed material families with aliases for normalization
+-- tenant_id must be replaced with actual tenant UUID after tenant creation
+
+-- This is a template; the actual seed runs via the import script
+-- which creates a tenant first and then inserts families with that tenant_id.
+
+-- Reference mapping:
+-- HDPE  = Alta, ALTA, alta, HDPE, HD
+-- LDPE  = Baja, BAJA, baja, LDPE, LD
+-- LLDPE = Lineal, LINEAL, lineal, LLDPE, LLD
+-- PP    = PP, pp
+-- ABS   = ABS, abs
+-- PET   = PET, pet
+-- GPPS  = GPPS, gpps, PS Cristal
+-- HIPS  = HIPS, hips, PS Alto Impacto
+-- EPS   = EPS, eps
+-- EVA   = EVA, eva
+-- PC    = PC, pc
+-- PVC   = PVC, pvc
+-- PA6   = PA6, pa6, Nylon
+-- SAN   = SAN, san
+-- PLA   = PLA, pla
+-- CaCO3 = CaCO3, caco3
+-- POM   = POM, pom, Acetal
+-- PMMA  = PMMA, pmma, Acrilico
