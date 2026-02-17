@@ -15,6 +15,7 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeGradeCode } from "./grade-normalizer";
 import { generateIdempotencyKey } from "../utils/idempotency";
+import { createAdminClient } from "../supabase/admin";
 
 export interface MatchedRecipient {
   clientId: string;
@@ -336,4 +337,125 @@ export async function matchGradeToRecipients(
     recipients,
     warnings,
   };
+}
+
+/**
+ * Run matching engine for all price entries in an ingestion.
+ * Creates a quotation with matched recipients.
+ */
+export async function runMatchingForIngestion(
+  ingestionId: string,
+  tenantId: string,
+): Promise<{ matched: number; unknown: number; total: number }> {
+  const supabase = createAdminClient();
+
+  // Get all price entries for this ingestion
+  const { data: entries } = await supabase
+    .from("price_entries")
+    .select("*")
+    .eq("ingestion_id", ingestionId);
+
+  if (!entries || entries.length === 0) {
+    return { matched: 0, unknown: 0, total: 0 };
+  }
+
+  let matched = 0;
+  let unknown = 0;
+  const allRecipients: Array<{
+    matchResult: MatchResult;
+    priceEntry: typeof entries[0];
+  }> = [];
+
+  for (const entry of entries) {
+    const result = await matchGradeToRecipients(
+      supabase,
+      tenantId,
+      entry.raw_grade_text,
+      entry.price_usd,
+    );
+
+    if (result.status === "matched" && result.grade) {
+      matched++;
+
+      // Update price entry with grade match
+      await supabase
+        .from("price_entries")
+        .update({
+          grade_id: result.grade.id,
+          is_matched: true,
+          match_confidence: result.warnings.length > 0 ? 0.8 : 1.0,
+        })
+        .eq("id", entry.id);
+
+      if (result.recipients.length > 0) {
+        allRecipients.push({ matchResult: result, priceEntry: entry });
+      }
+    } else {
+      unknown++;
+    }
+  }
+
+  // Create quotation if there are matched recipients
+  if (allRecipients.length > 0) {
+    const { data: quotation } = await supabase
+      .from("quotations")
+      .insert({
+        tenant_id: tenantId,
+        ingestion_id: ingestionId,
+        title: `Auto-cotizacion ${new Date().toISOString().split("T")[0]}`,
+        status: "draft",
+        total_recipients: allRecipients.reduce(
+          (sum, r) => sum + r.matchResult.recipients.length,
+          0,
+        ),
+      })
+      .select()
+      .single();
+
+    if (quotation) {
+      // Create quotation items and recipients
+      for (const { matchResult, priceEntry } of allRecipients) {
+        if (!matchResult.grade) continue;
+
+        const { data: item } = await supabase
+          .from("quotation_items")
+          .insert({
+            quotation_id: quotation.id,
+            price_entry_id: priceEntry.id,
+            grade_id: matchResult.grade.id,
+            price_usd: priceEntry.price_usd,
+          })
+          .select()
+          .single();
+
+        if (!item) continue;
+
+        const today = new Date().toISOString().split("T")[0];
+        const recipientRows = matchResult.recipients.map((r) => ({
+          tenant_id: tenantId,
+          quotation_id: quotation.id,
+          client_id: r.clientId,
+          contact_id: r.contactId,
+          channel: r.channel,
+          idempotency_key: generateIdempotencyKey({
+            tenantId,
+            clientId: r.clientId,
+            gradeId: matchResult.grade!.id,
+            priceUsd: priceEntry.price_usd,
+            date: today,
+          }),
+          dispatch_status: "pending" as const,
+        }));
+
+        // Insert recipients, skip duplicates
+        for (const row of recipientRows) {
+          await supabase
+            .from("quotation_recipients")
+            .upsert(row, { onConflict: "idempotency_key", ignoreDuplicates: true });
+        }
+      }
+    }
+  }
+
+  return { matched, unknown, total: entries.length };
 }
