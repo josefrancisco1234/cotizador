@@ -88,45 +88,43 @@ function extractTableRows(tableHtml: string): string[][] {
  * Heuristic: look for a cell with grade-like text and a cell with price-like text.
  */
 function parseRowCells(cells: string[]): ParsedPriceRow | null {
-  // Skip header rows
-  const headerKeywords = ["grade", "grado", "precio", "price", "material", "product"];
+  // Skip header rows (header cells have no 3+ digit numbers)
+  const headerKeywords = ["grade", "grado", "precio", "price", "material", "product", "cfr", "fob", "cif"];
   const isHeader = cells.some((c) =>
-    headerKeywords.some((kw) => c.toLowerCase().includes(kw))
+    headerKeywords.some((kw) => c.toLowerCase() === kw || c.toLowerCase().startsWith(kw + " "))
   );
-  if (isHeader && cells.every((c) => !/\d{3,}/.test(c))) {
+  if (isHeader && cells.every((c) => !/^\d{3,}$/.test(c.replace(/[,.\s]/g, "")))) {
     return null; // Likely a header row
   }
 
-  // Strategy: find the cell that looks like a grade and the cell that looks like a price
+  // Strategy: grade codes START with letters and contain numbers (e.g. GP5000, HP9450, JM-350)
+  // Prices are standalone numbers (e.g. 1285, 1,295, USD 1395)
   let gradeText: string | null = null;
   let priceText: string | null = null;
 
   for (const cell of cells) {
     if (!cell) continue;
 
-    // Price detection: contains digits with comma/dot separators, possibly with USD
+    // Grade detection FIRST: starts with letter(s) followed by digits
+    // e.g. GP5000, HP9450, JM-350, HDPE123, HP825F
+    if (!gradeText && /^[A-Za-z]{1,6}[\-\/]?[A-Za-z0-9\-\/\s]*\d/.test(cell) && cell.length <= 30) {
+      gradeText = cell;
+      continue;
+    }
+
+    // Price detection: standalone number possibly with currency symbol
+    // Must not start with a letter (to avoid matching grade codes)
     if (
       !priceText &&
-      /(?:USD|US\$|\$)?\s*\d{1,3}[,.]?\d{3}(?:[,.]\d{1,2})?/.test(cell)
+      /^(?:USD|US\$|\$)?\s*\d[\d,.\s]*$/.test(cell.trim()) &&
+      /\d{3,}/.test(cell.replace(/[,.\s]/g, ""))
     ) {
       priceText = cell;
       continue;
     }
 
-    // Grade detection: alphanumeric codes (letters + numbers)
-    if (!gradeText && /[A-Za-z].*\d|\d.*[A-Za-z]/.test(cell)) {
-      gradeText = cell;
-      continue;
-    }
-
-    // Fallback: pure number could be price
-    if (!priceText && /^\d{3,}$/.test(cell.replace(/[,.\s]/g, ""))) {
-      priceText = cell;
-      continue;
-    }
-
-    // Fallback: if we have a grade but no price, try this cell
-    if (gradeText && !priceText) {
+    // Fallback: if we have a grade but no price yet, any cell with 3+ digit number
+    if (gradeText && !priceText && /\d{3,}/.test(cell.replace(/[,.\s]/g, ""))) {
       priceText = cell;
     }
   }

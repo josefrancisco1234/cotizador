@@ -11,7 +11,8 @@ interface PriceEntry {
   incoterm: string;
   port: string;
   is_matched: boolean;
-  grade_id: string | null;
+  match_confidence: number | null;
+  grade: { grade_code: string; family: { code: string; display_name: string } } | null;
 }
 
 interface Ingestion {
@@ -23,7 +24,15 @@ interface Ingestion {
   grades_matched: number;
   grades_unknown: number;
   created_at: string;
+  raw_html: string | null;
 }
+
+const STATUS_COLORS: Record<string, string> = {
+  pending: "bg-yellow-100 text-yellow-800",
+  processing: "bg-blue-100 text-blue-800",
+  completed: "bg-green-100 text-green-800",
+  failed: "bg-red-100 text-red-800",
+};
 
 export default function IngestionDetailPage({
   params,
@@ -37,30 +46,26 @@ export default function IngestionDetailPage({
   const [matching, setMatching] = useState(false);
   const [matchResult, setMatchResult] = useState<{
     quotationId?: string;
-    matchResults?: Array<{
-      gradeCode: string;
-      priceUsd: number;
-      status: string;
-      recipientCount: number;
-      warnings: string[];
-    }>;
+    matched: number;
+    unknown: number;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadDetail();
-  }, [id]);
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadDetail() {
     setLoading(true);
     try {
-      // Load ingestion and its price entries via a combined approach
-      const res = await fetch(`/api/ingestions`);
+      const res = await fetch(`/api/ingestions/${id}`);
       const json = await res.json();
-      const found = (json.data || []).find((i: Ingestion) => i.id === id);
-      setIngestion(found || null);
-
-      // For price entries, we'd need an API route - for now show parsed data
+      if (res.ok) {
+        setIngestion(json.ingestion);
+        setEntries(json.entries || []);
+      } else {
+        setError("Ingestion no encontrada");
+      }
     } catch {
       setError("Error al cargar detalle");
     } finally {
@@ -75,7 +80,11 @@ export default function IngestionDetailPage({
       const res = await fetch(`/api/ingestions/${id}/match`, { method: "POST" });
       const json = await res.json();
       if (res.ok) {
-        setMatchResult(json);
+        setMatchResult({
+          quotationId: json.quotationId,
+          matched: json.matched,
+          unknown: json.unknown,
+        });
         loadDetail();
       } else {
         setError(json.error || "Error en matching");
@@ -95,22 +104,23 @@ export default function IngestionDetailPage({
     return (
       <div className="text-center py-12">
         <p className="text-gray-400 mb-4">Ingestion no encontrada</p>
-        <Link href="/ingestions" className="text-blue-600 hover:text-blue-800">
-          Volver a lista
-        </Link>
+        <Link href="/ingestions" className="text-blue-600 hover:text-blue-800">Volver</Link>
       </div>
     );
   }
 
+  const canMatch = ingestion.status === "pending" || ingestion.status === "processing";
+
   return (
     <div>
+      {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm text-gray-500 mb-6">
         <Link href="/ingestions" className="hover:text-blue-600">Ingestiones</Link>
         <span>/</span>
-        <span className="text-gray-900">{ingestion.source_subject || "Manual"}</span>
+        <span className="text-gray-900 truncate">{ingestion.source_subject || "Manual"}</span>
       </div>
 
-      {/* Header */}
+      {/* Header Card */}
       <div className="bg-white border border-gray-200 rounded-xl p-6 mb-6 shadow-sm">
         <div className="flex items-start justify-between">
           <div>
@@ -122,8 +132,11 @@ export default function IngestionDetailPage({
               {new Date(ingestion.created_at).toLocaleString("es-PE")}
             </p>
           </div>
-          <div className="flex gap-3">
-            {(ingestion.status === "pending" || ingestion.status === "processing") && (
+          <div className="flex items-center gap-3">
+            <span className={`px-3 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[ingestion.status] || "bg-gray-100 text-gray-800"}`}>
+              {ingestion.status}
+            </span>
+            {canMatch && (
               <button
                 onClick={runMatching}
                 disabled={matching}
@@ -135,22 +148,18 @@ export default function IngestionDetailPage({
           </div>
         </div>
 
-        <div className="grid grid-cols-4 gap-4 mt-6">
+        <div className="grid grid-cols-3 gap-4 mt-6">
           <div className="bg-gray-50 rounded-lg p-4 text-center">
-            <p className="text-2xl font-bold text-gray-900">{ingestion.grades_found}</p>
+            <p className="text-2xl font-bold text-gray-900">{ingestion.grades_found || entries.length}</p>
             <p className="text-xs text-gray-500 mt-1">Grados encontrados</p>
           </div>
           <div className="bg-green-50 rounded-lg p-4 text-center">
             <p className="text-2xl font-bold text-green-700">{ingestion.grades_matched}</p>
-            <p className="text-xs text-gray-500 mt-1">Matched</p>
+            <p className="text-xs text-gray-500 mt-1">Matched en biblia</p>
           </div>
           <div className="bg-red-50 rounded-lg p-4 text-center">
             <p className="text-2xl font-bold text-red-600">{ingestion.grades_unknown}</p>
-            <p className="text-xs text-gray-500 mt-1">Desconocidos</p>
-          </div>
-          <div className="bg-blue-50 rounded-lg p-4 text-center">
-            <p className="text-2xl font-bold text-blue-700 capitalize">{ingestion.status}</p>
-            <p className="text-xs text-gray-500 mt-1">Estado</p>
+            <p className="text-xs text-gray-500 mt-1">No encontrados</p>
           </div>
         </div>
       </div>
@@ -161,65 +170,90 @@ export default function IngestionDetailPage({
         </div>
       )}
 
-      {/* Match Results */}
+      {/* Match result banner */}
       {matchResult && (
-        <div className="bg-white border border-gray-200 rounded-xl p-6 mb-6 shadow-sm">
-          <h2 className="text-lg font-semibold mb-4">Resultados del Matching</h2>
-
-          {matchResult.quotationId && (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
-              <p className="text-sm text-green-800">
-                Cotizacion creada:{" "}
-                <Link
-                  href={`/quotations/${matchResult.quotationId}`}
-                  className="font-medium underline"
-                >
-                  Ver cotizacion
+        <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-6">
+          <p className="text-sm text-green-800 font-medium">
+            Matching completado: {matchResult.matched} grados matcheados, {matchResult.unknown} desconocidos.
+            {matchResult.quotationId && (
+              <>
+                {" "}Cotizacion creada:{" "}
+                <Link href={`/quotations/${matchResult.quotationId}`} className="underline font-semibold">
+                  Ver cotizacion →
                 </Link>
-              </p>
-            </div>
-          )}
-
-          <div className="space-y-3">
-            {matchResult.matchResults?.map((mr, i) => (
-                <div
-                  key={i}
-                  className={`flex items-center justify-between p-3 rounded-lg border ${
-                    mr.status === "matched"
-                      ? "border-green-200 bg-green-50"
-                      : mr.status === "unknown"
-                        ? "border-red-200 bg-red-50"
-                        : "border-yellow-200 bg-yellow-50"
-                  }`}
-                >
-                  <div>
-                    <span className="font-mono font-medium">{mr.gradeCode}</span>
-                    <span className="text-gray-500 ml-3">
-                      USD {mr.priceUsd?.toLocaleString("en-US")}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm text-gray-600">
-                      {mr.recipientCount || 0} destinatarios
-                    </span>
-                    <span
-                      className={`px-2 py-0.5 rounded text-xs font-medium ${
-                        mr.status === "matched"
-                          ? "bg-green-200 text-green-800"
-                          : mr.status === "unknown"
-                            ? "bg-red-200 text-red-800"
-                            : "bg-yellow-200 text-yellow-800"
-                      }`}
-                    >
-                      {mr.status}
-                    </span>
-                  </div>
-                </div>
-              ),
+              </>
             )}
-          </div>
+          </p>
         </div>
       )}
+
+      {/* Price Entries Table */}
+      <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-200">
+          <h2 className="text-base font-semibold text-gray-900">
+            Tabla de Precios Extraida
+          </h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Grados y precios detectados en el email del proveedor
+          </p>
+        </div>
+
+        {entries.length === 0 ? (
+          <div className="px-6 py-12 text-center text-gray-400 text-sm">
+            No se extrajeron grados de este email.
+            {ingestion.status === "pending" && " Ejecuta el matching para procesarlo."}
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="text-left px-6 py-3 font-medium text-gray-500">Grado (raw)</th>
+                <th className="text-left px-6 py-3 font-medium text-gray-500">Biblia</th>
+                <th className="text-left px-6 py-3 font-medium text-gray-500">Familia</th>
+                <th className="text-right px-6 py-3 font-medium text-gray-500">Precio USD</th>
+                <th className="text-center px-6 py-3 font-medium text-gray-500">Incoterm</th>
+                <th className="text-center px-6 py-3 font-medium text-gray-500">Puerto</th>
+                <th className="text-center px-6 py-3 font-medium text-gray-500">Estado</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {entries.map((entry) => (
+                <tr key={entry.id} className="hover:bg-gray-50">
+                  <td className="px-6 py-3 font-mono font-medium text-gray-900">
+                    {entry.raw_grade_text}
+                  </td>
+                  <td className="px-6 py-3 font-mono text-gray-600">
+                    {entry.grade?.grade_code || (
+                      <span className="text-red-400 text-xs">No encontrado</span>
+                    )}
+                  </td>
+                  <td className="px-6 py-3 text-gray-600">
+                    {entry.grade?.family?.display_name || "-"}
+                  </td>
+                  <td className="px-6 py-3 text-right font-semibold text-gray-900">
+                    {entry.price_usd != null
+                      ? `$${entry.price_usd.toLocaleString("en-US", { minimumFractionDigits: 0 })}`
+                      : entry.raw_price_text || "-"}
+                  </td>
+                  <td className="px-6 py-3 text-center text-gray-600">{entry.incoterm}</td>
+                  <td className="px-6 py-3 text-center text-gray-600">{entry.port}</td>
+                  <td className="px-6 py-3 text-center">
+                    {entry.is_matched ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        ✓ Matched
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                        ? Desconocido
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   );
 }
