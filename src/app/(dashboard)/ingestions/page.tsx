@@ -29,6 +29,7 @@ export default function IngestionsPage() {
   const [showPaste, setShowPaste] = useState(false);
   const [htmlInput, setHtmlInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [checkingGmail, setCheckingGmail] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   async function loadIngestions() {
@@ -41,6 +42,30 @@ export default function IngestionsPage() {
       setMessage({ type: "error", text: "Error al cargar ingestiones" });
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function checkGmail() {
+    setCheckingGmail(true);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/gmail/check");
+      const json = await res.json();
+      if (res.ok) {
+        const { emails } = json;
+        if (emails?.processed > 0) {
+          setMessage({ type: "success", text: `Gmail: ${emails.processed} email(s) nuevos procesados` });
+          loadIngestions();
+        } else {
+          setMessage({ type: "success", text: "Gmail revisado - no hay emails nuevos con etiqueta COTIZAR" });
+        }
+      } else {
+        setMessage({ type: "error", text: json.error || "Error al revisar Gmail" });
+      }
+    } catch {
+      setMessage({ type: "error", text: "Error de conexion" });
+    } finally {
+      setCheckingGmail(false);
     }
   }
 
@@ -88,9 +113,20 @@ export default function IngestionsPage() {
         <div className="flex gap-3">
           <button
             onClick={loadIngestions}
-            className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+            disabled={loading}
+            className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
           >
-            Actualizar
+            {loading ? "Cargando..." : "Actualizar"}
+          </button>
+          <button
+            onClick={checkGmail}
+            disabled={checkingGmail}
+            className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center gap-2"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
+            </svg>
+            {checkingGmail ? "Revisando..." : "Revisar Gmail"}
           </button>
           <button
             onClick={() => setShowPaste(!showPaste)}

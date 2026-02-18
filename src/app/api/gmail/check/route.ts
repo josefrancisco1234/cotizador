@@ -12,9 +12,11 @@ const TENANT_ID = process.env.DEFAULT_TENANT_ID!;
  * Protected by CRON_SECRET header to prevent unauthorized access.
  */
 export async function GET(request: NextRequest) {
-  // Verify authorization
+  // Verify authorization - allow from internal dashboard (referer) or cron with secret
   const authHeader = request.headers.get("authorization");
-  if (CRON_SECRET && authHeader !== `Bearer ${CRON_SECRET}`) {
+  const referer = request.headers.get("referer") || "";
+  const isInternalRequest = referer.includes("/ingestions");
+  if (CRON_SECRET && authHeader !== `Bearer ${CRON_SECRET}` && !isInternalRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
