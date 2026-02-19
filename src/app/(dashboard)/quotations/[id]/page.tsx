@@ -1,7 +1,20 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { useState, useEffect, use, useRef, useCallback } from "react";
 import Link from "next/link";
+
+interface QuotationItem {
+  id: string;
+  price_usd: number;
+  grade: {
+    grade_code: string;
+    uso: string;
+    brand: string;
+    manufacturer: string;
+    attributes: string;
+    family: { code: string; display_name: string };
+  };
+}
 
 interface QuotationDetail {
   id: string;
@@ -13,18 +26,7 @@ interface QuotationDetail {
   total_dispatched: number;
   approved_at: string | null;
   created_at: string;
-  items: Array<{
-    id: string;
-    price_usd: number;
-    grade: {
-      grade_code: string;
-      uso: string;
-      brand: string;
-      manufacturer: string;
-      attributes: string;
-      family: { code: string; display_name: string };
-    };
-  }>;
+  items: QuotationItem[];
   recipients: Array<{
     id: string;
     channel: string;
@@ -59,15 +61,15 @@ export default function QuotationDetailPage({
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   // Preview modal state
-  const [preview, setPreview] = useState<{
-    open: boolean;
-    loading: boolean;
-    html: string;
-    subject: string;
-    to: string;
-    contactName: string;
-    clientName: string;
-  }>({ open: false, loading: false, html: "", subject: "", to: "", contactName: "", clientName: "" });
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewMeta, setPreviewMeta] = useState({ subject: "", to: "", contactName: "", clientName: "" });
+  // Active items in the preview (can be toggled off)
+  const [previewItems, setPreviewItems] = useState<QuotationItem[]>([]);
+  // Track which items are hidden in the preview
+  const [hiddenItemIds, setHiddenItemIds] = useState<Set<string>>(new Set());
+
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
     loadDetail();
@@ -108,17 +110,96 @@ export default function QuotationDetailPage({
     }
   }
 
+  async function openPreview(recipientId?: string) {
+    setPreviewOpen(true);
+    setPreviewLoading(true);
+    setHiddenItemIds(new Set());
+    setPreviewItems(quotation?.items || []);
+    try {
+      const url = `/api/quotations/${id}/preview${recipientId ? `?recipientId=${recipientId}` : ""}`;
+      const res = await fetch(url);
+      const json = await res.json();
+      if (res.ok) {
+        setPreviewMeta({
+          subject: json.subject,
+          to: json.to,
+          contactName: json.contactName || "",
+          clientName: json.clientName || "",
+        });
+        setPreviewLoading(false);
+        // Inject HTML into iframe and enable editing
+        setTimeout(() => {
+          const iframe = iframeRef.current;
+          if (!iframe) return;
+          const doc = iframe.contentDocument || iframe.contentWindow?.document;
+          if (!doc) return;
+          doc.open();
+          doc.write(json.html);
+          doc.close();
+          doc.designMode = "on";
+        }, 100);
+      } else {
+        setPreviewLoading(false);
+        const iframe = iframeRef.current;
+        if (iframe) {
+          const doc = iframe.contentDocument || iframe.contentWindow?.document;
+          if (doc) { doc.open(); doc.write(`<p style="color:red;padding:20px;">Error: ${json.error}</p>`); doc.close(); }
+        }
+      }
+    } catch {
+      setPreviewLoading(false);
+    }
+  }
+
+  function toggleItemInPreview(item: QuotationItem) {
+    const isHidden = hiddenItemIds.has(item.id);
+    const newHidden = new Set(hiddenItemIds);
+
+    const iframe = iframeRef.current;
+    const doc = iframe?.contentDocument || iframe?.contentWindow?.document;
+    if (!doc) return;
+
+    const rows = doc.querySelectorAll("tbody tr");
+    rows.forEach((row) => {
+      if (row.textContent?.includes(item.grade.grade_code)) {
+        (row as HTMLElement).style.display = isHidden ? "" : "none";
+      }
+    });
+
+    if (isHidden) {
+      newHidden.delete(item.id);
+    } else {
+      newHidden.add(item.id);
+    }
+    setHiddenItemIds(newHidden);
+  }
+
   async function saveDrafts() {
     setActing(true);
     setMessage(null);
+
+    // Get the current HTML from the editable iframe
+    let customHtml: string | undefined;
+    if (previewOpen && iframeRef.current) {
+      const doc = iframeRef.current.contentDocument || iframeRef.current.contentWindow?.document;
+      if (doc) {
+        customHtml = "<!DOCTYPE html>" + doc.documentElement.outerHTML;
+      }
+    }
+
     try {
-      const res = await fetch(`/api/quotations/${id}/save-drafts`, { method: "POST" });
+      const res = await fetch(`/api/quotations/${id}/save-drafts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(customHtml ? { customHtml } : {}),
+      });
       const json = await res.json();
       if (res.ok) {
         setMessage({
           type: "success",
           text: `Borradores guardados en Gmail: ${json.saved} guardados${json.failed > 0 ? `, ${json.failed} fallidos` : ""}. Revisalos en tu carpeta Borradores antes de enviar.`,
         });
+        setPreviewOpen(false);
       } else {
         setMessage({ type: "error", text: json.error || "Error guardando borradores" });
       }
@@ -147,30 +228,6 @@ export default function QuotationDetailPage({
     }
   }
 
-  async function openPreview(recipientId?: string) {
-    setPreview((p) => ({ ...p, open: true, loading: true, html: "", subject: "", to: "", contactName: "", clientName: "" }));
-    try {
-      const url = `/api/quotations/${id}/preview${recipientId ? `?recipientId=${recipientId}` : ""}`;
-      const res = await fetch(url);
-      const json = await res.json();
-      if (res.ok) {
-        setPreview({
-          open: true,
-          loading: false,
-          html: json.html,
-          subject: json.subject,
-          to: json.to,
-          contactName: json.contactName,
-          clientName: json.clientName,
-        });
-      } else {
-        setPreview((p) => ({ ...p, loading: false, html: `<p style="color:red;">Error: ${json.error}</p>` }));
-      }
-    } catch {
-      setPreview((p) => ({ ...p, loading: false, html: `<p style="color:red;">Error cargando preview</p>` }));
-    }
-  }
-
   if (loading) {
     return <div className="text-center py-12 text-gray-400">Cargando...</div>;
   }
@@ -189,29 +246,30 @@ export default function QuotationDetailPage({
 
   return (
     <div>
-      {/* Preview Modal */}
-      {preview.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+      {/* ── PREVIEW MODAL ──────────────────────────────────── */}
+      {previewOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[95vh] flex flex-col">
+
             {/* Modal header */}
-            <div className="flex items-start justify-between p-5 border-b border-gray-200">
+            <div className="flex items-start justify-between px-5 py-4 border-b border-gray-200">
               <div className="flex-1 min-w-0">
-                <p className="text-xs text-gray-500 mb-0.5">Vista previa del correo</p>
-                {preview.loading ? (
-                  <p className="text-sm text-gray-400">Cargando...</p>
+                <p className="text-xs font-medium text-blue-600 uppercase tracking-wide mb-0.5">Vista previa del correo · editable</p>
+                {previewLoading ? (
+                  <p className="text-sm text-gray-400">Generando preview...</p>
                 ) : (
                   <>
-                    <p className="font-semibold text-gray-900 truncate">{preview.subject}</p>
-                    <p className="text-sm text-gray-500 mt-0.5">
-                      Para: <span className="font-mono text-xs">{preview.to}</span>
-                      {preview.clientName && <span className="ml-2 text-gray-400">({preview.clientName})</span>}
+                    <p className="font-semibold text-gray-900 text-sm truncate">{previewMeta.subject}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Para: <span className="font-mono">{previewMeta.to}</span>
+                      {previewMeta.clientName && <span className="ml-2 text-gray-400">({previewMeta.clientName})</span>}
                     </p>
                   </>
                 )}
               </div>
               <button
-                onClick={() => setPreview((p) => ({ ...p, open: false }))}
-                className="ml-4 p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                onClick={() => setPreviewOpen(false)}
+                className="ml-4 p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -219,41 +277,78 @@ export default function QuotationDetailPage({
               </button>
             </div>
 
-            {/* Modal body - email preview */}
+            {/* Item toggle bar */}
+            {!previewLoading && previewItems.length > 0 && (
+              <div className="px-5 py-3 bg-gray-50 border-b border-gray-200 flex flex-wrap gap-2 items-center">
+                <span className="text-xs font-medium text-gray-500 mr-1">Items en el correo:</span>
+                {previewItems.map((item) => {
+                  const hidden = hiddenItemIds.has(item.id);
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => toggleItemInPreview(item)}
+                      className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all ${
+                        hidden
+                          ? "bg-gray-200 text-gray-400 line-through"
+                          : "bg-blue-100 text-blue-800 hover:bg-red-100 hover:text-red-700"
+                      }`}
+                      title={hidden ? "Click para incluir" : "Click para quitar del correo"}
+                    >
+                      {!hidden && (
+                        <svg className="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      )}
+                      {hidden && (
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                      )}
+                      {item.grade.grade_code}
+                    </button>
+                  );
+                })}
+                <span className="ml-auto text-xs text-gray-400 italic">Puedes editar el texto directamente en el correo</span>
+              </div>
+            )}
+
+            {/* Email preview — editable iframe */}
             <div className="flex-1 overflow-auto bg-gray-100 p-4">
-              {preview.loading ? (
-                <div className="flex items-center justify-center h-48 text-gray-400">Generando preview...</div>
+              {previewLoading ? (
+                <div className="flex items-center justify-center h-48 text-gray-400">Cargando...</div>
               ) : (
-                <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+                <div className="bg-white rounded-lg shadow-sm overflow-hidden border border-gray-200">
                   <iframe
-                    srcDoc={preview.html}
+                    ref={iframeRef}
                     className="w-full border-0"
-                    style={{ height: "520px" }}
-                    sandbox="allow-same-origin"
-                    title="Email preview"
+                    style={{ height: "540px" }}
+                    title="Email preview editable"
                   />
                 </div>
               )}
             </div>
 
             {/* Modal footer */}
-            <div className="p-4 border-t border-gray-200 flex justify-between items-center">
+            <div className="px-5 py-4 border-t border-gray-200 flex justify-between items-center">
               <p className="text-xs text-gray-400">
-                Este es el correo que se enviara al cliente. Revisa el contenido antes de guardar como borrador o enviar.
+                El texto subrayado rojo es ortografia del browser — no afecta el correo enviado.
               </p>
               <div className="flex gap-2">
                 <button
-                  onClick={() => setPreview((p) => ({ ...p, open: false }))}
+                  onClick={() => setPreviewOpen(false)}
                   className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
-                  Cerrar
+                  Cancelar
                 </button>
                 <button
-                  onClick={() => { setPreview((p) => ({ ...p, open: false })); saveDrafts(); }}
-                  disabled={preview.loading || acting}
-                  className="px-4 py-2 text-sm bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 disabled:opacity-50 font-medium"
+                  onClick={saveDrafts}
+                  disabled={previewLoading || acting}
+                  className="px-5 py-2 text-sm bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 disabled:opacity-50 font-medium flex items-center gap-2"
                 >
-                  Guardar en Borradores
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                  </svg>
+                  {acting ? "Guardando..." : "Guardar en Borradores"}
                 </button>
               </div>
             </div>
@@ -261,6 +356,7 @@ export default function QuotationDetailPage({
         </div>
       )}
 
+      {/* ── PAGE ───────────────────────────────────────────── */}
       <div className="flex items-center gap-2 text-sm text-gray-500 mb-6">
         <Link href="/quotations" className="hover:text-blue-600">Cotizaciones</Link>
         <span>/</span>
@@ -284,7 +380,6 @@ export default function QuotationDetailPage({
             </p>
           </div>
           <div className="flex gap-2 flex-wrap justify-end">
-            {/* Preview button - always visible if there are email recipients */}
             {emailRecipients.length > 0 && (
               <button
                 onClick={() => openPreview()}
@@ -294,11 +389,9 @@ export default function QuotationDetailPage({
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                 </svg>
-                Ver Email
+                Ver / Editar Email
               </button>
             )}
-
-            {/* Save drafts button */}
             {emailRecipients.length > 0 && (
               <button
                 onClick={saveDrafts}
@@ -308,10 +401,9 @@ export default function QuotationDetailPage({
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
                 </svg>
-                {acting ? "Guardando..." : `Guardar Borradores (${uniqueEmails})`}
+                {acting ? "Guardando..." : `Borradores (${uniqueEmails})`}
               </button>
             )}
-
             {quotation.status === "draft" && (
               <button
                 onClick={approve}
@@ -421,7 +513,7 @@ export default function QuotationDetailPage({
                   {r.channel === "email" && (
                     <button
                       onClick={() => openPreview(r.id)}
-                      title="Ver preview del email"
+                      title="Ver y editar preview del email"
                       className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

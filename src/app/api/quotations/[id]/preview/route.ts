@@ -9,7 +9,6 @@ import {
 const TENANT_ID = process.env.DEFAULT_TENANT_ID!;
 const COMPANY_NAME = "Petroquimica";
 const SENDER_NAME = "Maricarmen Fernandez";
-const DEFAULT_PAYMENT_TERMS = "CAD / 30 dias";
 
 /**
  * GET /api/quotations/[id]/preview?recipientId=xxx
@@ -85,7 +84,6 @@ export async function GET(
     salutation: recipient.contact.salutation,
     contactName: recipient.contact.contact_name,
     items: qData.items,
-    paymentTerms: qData.payment_terms || DEFAULT_PAYMENT_TERMS,
     senderName: SENDER_NAME,
     companyName: COMPANY_NAME,
   });

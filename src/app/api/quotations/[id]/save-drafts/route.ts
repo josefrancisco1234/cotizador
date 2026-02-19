@@ -10,25 +10,37 @@ import {
 const TENANT_ID = process.env.DEFAULT_TENANT_ID!;
 const COMPANY_NAME = "Petroquimica";
 const SENDER_NAME = "Maricarmen Fernandez";
-const DEFAULT_PAYMENT_TERMS = "CAD / 30 dias";
 
 /**
  * POST /api/quotations/[id]/save-drafts
  * Creates Gmail drafts for all email recipients (does NOT send).
- * Groups by unique email address: one draft per recipient with all grades.
+ *
+ * Body (optional):
+ *   { customHtml?: string }  — if provided, uses this HTML for all drafts instead of building it
  */
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
   const supabase = createAdminClient();
 
-  // Load quotation + items
+  // Optional: custom HTML sent from the editable preview
+  let customHtml: string | null = null;
+  try {
+    const body = await request.json();
+    if (body?.customHtml && typeof body.customHtml === "string") {
+      customHtml = body.customHtml;
+    }
+  } catch {
+    // No body or invalid JSON — build HTML from DB
+  }
+
+  // Load quotation + items (needed for subject and fallback HTML)
   const { data: quotation, error: qErr } = await supabase
     .from("quotations")
     .select(`
-      id, payment_terms,
+      id,
       items:quotation_items(
         price_usd,
         grade:product_grades!inner(
@@ -67,7 +79,7 @@ export async function POST(
     contact: { contact_name: string | null; salutation: string | null; channel_value: string };
   };
 
-  const qData = quotation as unknown as { payment_terms: string | null; items: QuotationEmailItem[] };
+  const qData = quotation as unknown as { items: QuotationEmailItem[] };
   const subject = buildQuotationEmailSubject(qData.items, COMPANY_NAME);
 
   // Deduplicate by email — one draft per unique address
@@ -80,11 +92,11 @@ export async function POST(
   const results: Array<{ email: string; client: string; draftId?: string; error?: string }> = [];
 
   for (const [email, recipient] of byEmail) {
-    const html = buildQuotationEmailHtml({
+    // Use custom HTML if provided, otherwise build from template
+    const html = customHtml ?? buildQuotationEmailHtml({
       salutation: recipient.contact.salutation,
       contactName: recipient.contact.contact_name,
       items: qData.items,
-      paymentTerms: qData.payment_terms || DEFAULT_PAYMENT_TERMS,
       senderName: SENDER_NAME,
       companyName: COMPANY_NAME,
     });

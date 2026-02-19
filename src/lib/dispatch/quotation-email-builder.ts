@@ -50,14 +50,13 @@ export interface QuotationEmailParams {
   salutation: string | null;
   contactName: string | null;
   items: QuotationEmailItem[];
-  paymentTerms: string;
   senderName: string;
   companyName: string;
 }
 
-export function buildQuotationEmailHtml(data: QuotationEmailParams): string {
+export function buildQuotationEmailHtml(data: QuotationEmailParams, overrideShipment?: string): string {
   const today = todayLong();
-  const shipment = shipmentMonth();
+  const shipment = overrideShipment || shipmentMonth();
   const greeting = buildGreeting(data.salutation, data.contactName);
 
   const rows = data.items
@@ -126,15 +125,15 @@ export function buildQuotationEmailHtml(data: QuotationEmailParams): string {
       </tbody>
     </table>
 
-    <h3 style="color:#2d3748;font-size:14px;margin:0 0 10px;">Condiciones Comerciales</h3>
-    <ul style="color:#4a5568;font-size:14px;padding-left:20px;margin:0 0 24px;">
-      <li style="margin-bottom:6px;">Condicion de pago: ${esc(data.paymentTerms)}</li>
-      <li style="margin-bottom:6px;">Embarque estimado: <strong>${esc(shipment)}</strong></li>
-    </ul>
-
-    <p style="color:#a0aec0;font-size:12px;font-style:italic;margin:0 0 24px;">
-      Cotizacion valida al <strong>${esc(today)}</strong>. Precios sujetos a disponibilidad.
+    <p style="color:#4a5568;font-size:14px;margin:0 0 6px;">
+      Embarque estimado: <strong>${esc(shipment)}</strong>
     </p>
+
+    <div style="background:#ebf8ff;border:1px solid #bee3f8;border-radius:6px;padding:12px 16px;margin:16px 0 24px;">
+      <p style="margin:0;color:#2b6cb0;font-size:13px;font-weight:600;">
+        Cotizacion valida al ${esc(today)} &nbsp;·&nbsp; Precios sujetos a disponibilidad
+      </p>
+    </div>
 
     <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0;" />
 
