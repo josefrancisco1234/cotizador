@@ -11,6 +11,31 @@ export function normalizeGradeCode(code: string): string {
   return code.toUpperCase().replace(/[\s\-]/g, "").trim();
 }
 
+// Ordered longest-first so "LLDPE" is checked before "LDPE" and "LDPE" before "PE"
+const FAMILY_PREFIXES = [
+  "LLDPE", "HDPE", "LDPE", "ABS", "PET", "PVC", "EVA", "PS", "PA", "PC", "PP",
+];
+
+/**
+ * If the normalized code starts with a known family prefix, returns the code
+ * with that prefix removed.  Returns null if no prefix matched.
+ *
+ * e.g. "PPGJ570" → "GJ570"
+ *      "HDPE6070EA" → "6070EA"
+ *      "GJ570" → null
+ */
+export function stripFamilyPrefix(normalizedCode: string): string | null {
+  for (const prefix of FAMILY_PREFIXES) {
+    if (
+      normalizedCode.startsWith(prefix) &&
+      normalizedCode.length > prefix.length
+    ) {
+      return normalizedCode.slice(prefix.length);
+    }
+  }
+  return null;
+}
+
 export function expandGrades(rawText: string): string[] {
   const trimmed = rawText.trim();
   if (!trimmed) return [];

@@ -13,7 +13,7 @@
  */
 
 import { SupabaseClient } from "@supabase/supabase-js";
-import { normalizeGradeCode } from "./grade-normalizer";
+import { normalizeGradeCode, stripFamilyPrefix } from "./grade-normalizer";
 import { generateIdempotencyKey } from "../utils/idempotency";
 import { createAdminClient } from "../supabase/admin";
 
@@ -71,13 +71,37 @@ export async function matchGradeToRecipients(
     .eq("grade_code_normalized", normalized)
     .single();
 
+  // ── STEP 1b: Prefix-stripped exact match ─────────────
+  // Handles "PP GJ-570" → strip "PP" → look up "GJ570"
   if (!grade) {
-    // Fuzzy fallback: partial match
+    const stripped = stripFamilyPrefix(normalized);
+    if (stripped) {
+      const { data: strippedGrade } = await supabase
+        .from("product_grades")
+        .select(`
+          id, grade_code, grade_code_normalized, uso, process, brand, manufacturer,
+          attributes, melt_index_label, family_id,
+          family:material_families!inner(id, code, display_name)
+        `)
+        .eq("tenant_id", tenantId)
+        .eq("grade_code_normalized", stripped)
+        .single();
+
+      if (strippedGrade) {
+        grade = strippedGrade;
+        warnings.push(`Prefix-stripped match: "${gradeCode}" matched to "${grade.grade_code}"`);
+      }
+    }
+  }
+
+  if (!grade) {
+    // Fuzzy fallback: partial match (try stripped prefix first if available)
+    const fuzzyTerm = stripFamilyPrefix(normalized) ?? normalized;
     const { data: candidates } = await supabase
       .from("product_grades")
       .select("id, grade_code, grade_code_normalized")
       .eq("tenant_id", tenantId)
-      .ilike("grade_code_normalized", `%${normalized}%`)
+      .ilike("grade_code_normalized", `%${fuzzyTerm}%`)
       .limit(5);
 
     if (candidates && candidates.length === 1) {
