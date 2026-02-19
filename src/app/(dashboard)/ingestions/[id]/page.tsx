@@ -44,6 +44,7 @@ export default function IngestionDetailPage({
   const [entries, setEntries] = useState<PriceEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [matching, setMatching] = useState(false);
+  const [reparsing, setReparsing] = useState(false);
   const [matchResult, setMatchResult] = useState<{
     quotationId?: string;
     matched: number;
@@ -70,6 +71,24 @@ export default function IngestionDetailPage({
       setError("Error al cargar detalle");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function reparse() {
+    setReparsing(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/ingestions/${id}/reparse`, { method: "POST" });
+      const json = await res.json();
+      if (res.ok) {
+        await loadDetail();
+      } else {
+        setError(json.error || "Error al re-parsear");
+      }
+    } catch {
+      setError("Error de conexion");
+    } finally {
+      setReparsing(false);
     }
   }
 
@@ -136,10 +155,17 @@ export default function IngestionDetailPage({
             <span className={`px-3 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[ingestion.status] || "bg-gray-100 text-gray-800"}`}>
               {ingestion.status}
             </span>
+            <button
+              onClick={reparse}
+              disabled={reparsing || matching}
+              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50 text-sm font-medium"
+            >
+              {reparsing ? "Re-parseando..." : "Re-parsear"}
+            </button>
             {canMatch && (
               <button
                 onClick={runMatching}
-                disabled={matching}
+                disabled={matching || reparsing}
                 className="px-5 py-2 bg-[#1a365d] text-white rounded-lg hover:bg-[#2a4a7d] disabled:opacity-50 text-sm font-medium"
               >
                 {matching ? "Ejecutando..." : "Ejecutar Matching"}
