@@ -167,15 +167,31 @@ async function main() {
     });
   }
 
+  // Deduplicate by grade_code_normalized (keep last occurrence)
+  const gradeMap = new Map<string, Record<string, unknown>>();
+  for (const g of gradeInserts) {
+    gradeMap.set(g.grade_code_normalized as string, g);
+  }
+  const dedupedGrades = Array.from(gradeMap.values());
+  console.log(`   ${gradeInserts.length} rows → ${dedupedGrades.length} unique grades after dedup`);
+
+  // Clear existing grades for this tenant to avoid stale data
+  await supabase.from("product_grades").delete().eq("tenant_id", tenantId);
+
   // Batch insert in chunks of 100
-  for (let i = 0; i < gradeInserts.length; i += 100) {
-    const chunk = gradeInserts.slice(i, i + 100);
+  let inserted = 0;
+  for (let i = 0; i < dedupedGrades.length; i += 100) {
+    const chunk = dedupedGrades.slice(i, i + 100);
     const { error } = await supabase
       .from("product_grades")
-      .upsert(chunk, { onConflict: "tenant_id,grade_code_normalized" });
-    if (error) console.error(`   Grade insert error at batch ${i}:`, error.message);
+      .insert(chunk);
+    if (error) {
+      console.error(`   Grade insert error at batch ${i}:`, error.message);
+    } else {
+      inserted += chunk.length;
+    }
   }
-  console.log(`   ${gradeInserts.length} grades imported, ${skippedGrades} skipped (unknown family)`);
+  console.log(`   ${inserted}/${dedupedGrades.length} grades imported, ${skippedGrades} skipped (unknown family)`);
 
   // 4. Import clients (BD1_CLIENTES)
   console.log("\n4. Importing clients (BD1_CLIENTES)...");
