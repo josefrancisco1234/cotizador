@@ -58,6 +58,17 @@ export default function QuotationDetailPage({
   const [acting, setActing] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
+  // Preview modal state
+  const [preview, setPreview] = useState<{
+    open: boolean;
+    loading: boolean;
+    html: string;
+    subject: string;
+    to: string;
+    contactName: string;
+    clientName: string;
+  }>({ open: false, loading: false, html: "", subject: "", to: "", contactName: "", clientName: "" });
+
   useEffect(() => {
     loadDetail();
   }, [id]);
@@ -97,6 +108,25 @@ export default function QuotationDetailPage({
     }
   }
 
+  async function saveDrafts() {
+    setActing(true);
+    setMessage(null);
+    try {
+      const res = await fetch(`/api/quotations/${id}/save-drafts`, { method: "POST" });
+      const json = await res.json();
+      if (res.ok) {
+        setMessage({
+          type: "success",
+          text: `Borradores guardados en Gmail: ${json.saved} guardados${json.failed > 0 ? `, ${json.failed} fallidos` : ""}. Revisalos en tu carpeta Borradores antes de enviar.`,
+        });
+      } else {
+        setMessage({ type: "error", text: json.error || "Error guardando borradores" });
+      }
+    } finally {
+      setActing(false);
+    }
+  }
+
   async function dispatch() {
     setActing(true);
     setMessage(null);
@@ -117,6 +147,30 @@ export default function QuotationDetailPage({
     }
   }
 
+  async function openPreview(recipientId?: string) {
+    setPreview((p) => ({ ...p, open: true, loading: true, html: "", subject: "", to: "", contactName: "", clientName: "" }));
+    try {
+      const url = `/api/quotations/${id}/preview${recipientId ? `?recipientId=${recipientId}` : ""}`;
+      const res = await fetch(url);
+      const json = await res.json();
+      if (res.ok) {
+        setPreview({
+          open: true,
+          loading: false,
+          html: json.html,
+          subject: json.subject,
+          to: json.to,
+          contactName: json.contactName,
+          clientName: json.clientName,
+        });
+      } else {
+        setPreview((p) => ({ ...p, loading: false, html: `<p style="color:red;">Error: ${json.error}</p>` }));
+      }
+    } catch {
+      setPreview((p) => ({ ...p, loading: false, html: `<p style="color:red;">Error cargando preview</p>` }));
+    }
+  }
+
   if (loading) {
     return <div className="text-center py-12 text-gray-400">Cargando...</div>;
   }
@@ -130,8 +184,83 @@ export default function QuotationDetailPage({
     );
   }
 
+  const emailRecipients = quotation.recipients.filter((r) => r.channel === "email");
+  const uniqueEmails = new Set(emailRecipients.map((r) => r.contact.channel_value.toLowerCase())).size;
+
   return (
     <div>
+      {/* Preview Modal */}
+      {preview.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+            {/* Modal header */}
+            <div className="flex items-start justify-between p-5 border-b border-gray-200">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-gray-500 mb-0.5">Vista previa del correo</p>
+                {preview.loading ? (
+                  <p className="text-sm text-gray-400">Cargando...</p>
+                ) : (
+                  <>
+                    <p className="font-semibold text-gray-900 truncate">{preview.subject}</p>
+                    <p className="text-sm text-gray-500 mt-0.5">
+                      Para: <span className="font-mono text-xs">{preview.to}</span>
+                      {preview.clientName && <span className="ml-2 text-gray-400">({preview.clientName})</span>}
+                    </p>
+                  </>
+                )}
+              </div>
+              <button
+                onClick={() => setPreview((p) => ({ ...p, open: false }))}
+                className="ml-4 p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Modal body - email preview */}
+            <div className="flex-1 overflow-auto bg-gray-100 p-4">
+              {preview.loading ? (
+                <div className="flex items-center justify-center h-48 text-gray-400">Generando preview...</div>
+              ) : (
+                <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+                  <iframe
+                    srcDoc={preview.html}
+                    className="w-full border-0"
+                    style={{ height: "520px" }}
+                    sandbox="allow-same-origin"
+                    title="Email preview"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Modal footer */}
+            <div className="p-4 border-t border-gray-200 flex justify-between items-center">
+              <p className="text-xs text-gray-400">
+                Este es el correo que se enviara al cliente. Revisa el contenido antes de guardar como borrador o enviar.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setPreview((p) => ({ ...p, open: false }))}
+                  className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  Cerrar
+                </button>
+                <button
+                  onClick={() => { setPreview((p) => ({ ...p, open: false })); saveDrafts(); }}
+                  disabled={preview.loading || acting}
+                  className="px-4 py-2 text-sm bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 disabled:opacity-50 font-medium"
+                >
+                  Guardar en Borradores
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center gap-2 text-sm text-gray-500 mb-6">
         <Link href="/quotations" className="hover:text-blue-600">Cotizaciones</Link>
         <span>/</span>
@@ -154,7 +283,35 @@ export default function QuotationDetailPage({
               {quotation.approved_at && ` | Aprobada: ${new Date(quotation.approved_at).toLocaleString("es-PE")}`}
             </p>
           </div>
-          <div className="flex gap-3">
+          <div className="flex gap-2 flex-wrap justify-end">
+            {/* Preview button - always visible if there are email recipients */}
+            {emailRecipients.length > 0 && (
+              <button
+                onClick={() => openPreview()}
+                className="px-4 py-2 bg-gray-100 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-200 text-sm font-medium flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+                Ver Email
+              </button>
+            )}
+
+            {/* Save drafts button */}
+            {emailRecipients.length > 0 && (
+              <button
+                onClick={saveDrafts}
+                disabled={acting}
+                className="px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 disabled:opacity-50 text-sm font-medium flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                </svg>
+                {acting ? "Guardando..." : `Guardar Borradores (${uniqueEmails})`}
+              </button>
+            )}
+
             {quotation.status === "draft" && (
               <button
                 onClick={approve}
@@ -223,8 +380,11 @@ export default function QuotationDetailPage({
 
       {/* Recipients */}
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-        <div className="p-6 pb-0">
+        <div className="p-6 pb-0 flex items-center justify-between">
           <h2 className="text-lg font-semibold mb-4">Destinatarios ({quotation.recipients.length})</h2>
+          {emailRecipients.length > 0 && (
+            <p className="text-sm text-gray-500 mb-4">{uniqueEmails} correos unicos</p>
+          )}
         </div>
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-y border-gray-200">
@@ -234,6 +394,7 @@ export default function QuotationDetailPage({
               <th className="text-left px-6 py-3 font-medium text-gray-500">Canal</th>
               <th className="text-left px-6 py-3 font-medium text-gray-500">Destino</th>
               <th className="text-center px-6 py-3 font-medium text-gray-500">Estado</th>
+              <th className="text-center px-6 py-3 font-medium text-gray-500">Preview</th>
               <th className="text-left px-6 py-3 font-medium text-gray-500">Error</th>
             </tr>
           </thead>
@@ -255,6 +416,20 @@ export default function QuotationDetailPage({
                   <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${DISPATCH_COLORS[r.dispatch_status] || "bg-gray-100"}`}>
                     {r.dispatch_status}
                   </span>
+                </td>
+                <td className="px-6 py-3 text-center">
+                  {r.channel === "email" && (
+                    <button
+                      onClick={() => openPreview(r.id)}
+                      title="Ver preview del email"
+                      className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                      </svg>
+                    </button>
+                  )}
                 </td>
                 <td className="px-6 py-3 text-xs text-red-500 max-w-[200px] truncate">
                   {r.error_message || ""}

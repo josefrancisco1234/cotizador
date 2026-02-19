@@ -37,6 +37,36 @@ export async function sendEmailViaGmail({
   }
 }
 
+/**
+ * Save an email as a Gmail draft (does NOT send it).
+ */
+export async function saveDraftViaGmail({
+  to,
+  subject,
+  htmlBody,
+  fromName = "Cotizador B2B",
+}: SendEmailParams): Promise<{ success: boolean; draftId?: string; error?: string }> {
+  try {
+    const fromEmail = process.env.GMAIL_FROM_EMAIL || "mc.maricarmenfernandez@gmail.com";
+
+    const raw = createRawEmail({
+      from: `${fromName} <${fromEmail}>`,
+      to,
+      subject,
+      htmlBody,
+    });
+
+    const res = await gmail.users.drafts.create({
+      userId: "me",
+      requestBody: { message: { raw } },
+    });
+
+    return { success: true, draftId: res.data.id || undefined };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
 function createRawEmail(params: {
   from: string;
   to: string;
