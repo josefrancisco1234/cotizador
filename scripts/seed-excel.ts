@@ -175,18 +175,15 @@ async function main() {
   const dedupedGrades = Array.from(gradeMap.values());
   console.log(`   ${gradeInserts.length} rows → ${dedupedGrades.length} unique grades after dedup`);
 
-  // Clear existing grades for this tenant to avoid stale data
-  await supabase.from("product_grades").delete().eq("tenant_id", tenantId);
-
-  // Batch insert in chunks of 100
+  // Batch upsert in chunks of 100 (already deduplicated so no intra-batch conflicts)
   let inserted = 0;
   for (let i = 0; i < dedupedGrades.length; i += 100) {
     const chunk = dedupedGrades.slice(i, i + 100);
     const { error } = await supabase
       .from("product_grades")
-      .insert(chunk);
+      .upsert(chunk, { onConflict: "tenant_id,grade_code_normalized" });
     if (error) {
-      console.error(`   Grade insert error at batch ${i}:`, error.message);
+      console.error(`   Grade upsert error at batch ${i}:`, error.message);
     } else {
       inserted += chunk.length;
     }
@@ -236,9 +233,18 @@ async function main() {
     // Extract contacts - Purchasing department
     const salutionCompras = str(row["Saludo Compras"]);
     for (let i = 1; i <= 3; i++) {
-      const contactName = str(row[`Contactos  Compras ${i}`] || row[`Contactos Compras ${i}`]);
+      const namePart1 = str(row[`Contactos  Compras ${i}`] || row[`Contactos Compras ${i}`]);
       const emailRaw = str(row[`Email Compras ${i}`]);
       const whatsappRaw = row[`WhatsApp Compras ${i}`] as string | number | null;
+
+      // If the next slot has a name but NO email, combine them as full name
+      // e.g. D="Señorita" E="Vilma" → "Señorita Vilma"
+      const namePart2 = i < 3 ? str(row[`Contactos  Compras ${i + 1}`] || row[`Contactos Compras ${i + 1}`]) : null;
+      const nextEmailRaw = i < 3 ? str(row[`Email Compras ${i + 1}`]) : null;
+      const nextHasEmail = nextEmailRaw ? !!extractEmail(nextEmailRaw) : false;
+      const contactName = (namePart1 && namePart2 && !nextHasEmail)
+        ? `${namePart1} ${namePart2}`
+        : namePart1;
 
       const email = extractEmail(emailRaw);
       if (email) {

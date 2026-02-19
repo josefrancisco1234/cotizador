@@ -137,12 +137,31 @@ export function buildQuotationEmailHtml(data: QuotationEmailParams, overrideShip
 
     <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0;" />
 
-    <p style="color:#4a5568;font-size:14px;margin:0 0 4px;">Quedamos atentos a sus consultas.</p>
-    <p style="color:#4a5568;font-size:14px;margin:0 0 16px;">Saludos cordiales,</p>
-    <p style="color:#2d3748;font-size:14px;font-weight:600;margin:0;">
-      ${esc(data.senderName)}<br/>
-      <span style="font-weight:400;color:#4a5568;">${esc(data.companyName)}</span>
-    </p>
+    <!-- Firma ICD America -->
+    <p style="color:#4a5568;font-size:14px;margin:0 0 4px;">Cordialmente,</p>
+    <p style="color:#2d3748;font-size:14px;font-weight:600;margin:0 0 14px;">${esc(data.senderName)}</p>
+
+    <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+      <tr>
+        <td style="padding-right:16px;vertical-align:middle;">
+          <!-- Logo ICD America -->
+          <div style="font-family:Arial,sans-serif;line-height:1;">
+            <span style="font-size:28px;font-weight:900;color:#2d7a2d;letter-spacing:-1px;">ICD</span><br/>
+            <span style="font-size:9px;font-weight:600;color:#2d7a2d;letter-spacing:3px;">AMERICA, LLC</span>
+          </div>
+        </td>
+        <td style="border-left:2px solid #e2e8f0;padding-left:16px;vertical-align:middle;">
+          <p style="margin:0 0 3px;font-size:13px;color:#2b6cb0;">
+            <a href="mailto:mc.maricarmenfernandez@gmail.com" style="color:#2b6cb0;text-decoration:none;">mc.maricarmenfernandez@gmail.com</a>
+          </p>
+          <p style="margin:0 0 3px;font-size:13px;color:#4a5568;">Perú: +51 999 430 482</p>
+          <p style="margin:0 0 3px;font-size:12px;color:#718096;">800 Westchester Ave. Suite N-511, Rye Brook, NY 10573</p>
+          <p style="margin:0;font-size:13px;">
+            <a href="https://www.icdamerica.com" style="color:#2d7a2d;text-decoration:none;">www.icdamerica.com</a>
+          </p>
+        </td>
+      </tr>
+    </table>
   </div>
 
 </body>
