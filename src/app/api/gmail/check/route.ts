@@ -20,6 +20,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Guard: check Gmail credentials are configured
+  if (!process.env.GMAIL_REFRESH_TOKEN || !process.env.GMAIL_CLIENT_ID || !process.env.GMAIL_CLIENT_SECRET) {
+    return NextResponse.json(
+      { error: "Gmail no configurado en Vercel. Ve a tu proyecto → Settings → Environment Variables y agrega GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN, GMAIL_FROM_EMAIL. Luego redeploya." },
+      { status: 500 }
+    );
+  }
+
   try {
     // Step 1: Check inbox and create ingestion records
     const checkResult = await checkInboxForPriceEmails();
