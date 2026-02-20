@@ -3,6 +3,11 @@
  *
  * Extracts grade/price pairs from HTML email bodies sent by suppliers.
  * Handles variable table structures and inconsistent formatting.
+ *
+ * Strategy:
+ * 1. For each table, read the first row as potential header.
+ * 2. If header columns identify "grade" and "price" columns → use them directly.
+ * 3. Otherwise → fall back to cell-by-cell heuristic.
  */
 
 import { expandGrades, normalizePrice } from "./grade-normalizer";
@@ -22,6 +27,11 @@ export interface ParseResult {
   tableCount: number;
 }
 
+interface ColumnMap {
+  gradeCol: number;
+  priceCol: number;
+}
+
 /**
  * Parse HTML email body and extract grade/price pairs.
  */
@@ -38,12 +48,55 @@ export function parseEmailHtml(html: string): ParseResult {
     return { rows: parseTextFallback(html, warnings), warnings, tableCount: 0 };
   }
 
+  // Detect incoterm/port from the full email body (headers like "CFR PECLL" live there)
+  const fullText = stripHtml(html);
+  const emailIncoterm = detectIncoterm(fullText);
+  const emailPort = detectPort(fullText);
+
   for (const tableHtml of tables) {
-    const tableRows = extractTableRows(tableHtml);
-    for (const cells of tableRows) {
-      const parsed = parseRowCells(cells);
-      if (parsed) {
-        rows.push(parsed);
+    const tableRows = extractAllRows(tableHtml);
+    if (tableRows.length < 2) continue;
+
+    // Try to detect column positions from the first (header) row
+    const columnMap = detectColumnMap(tableRows[0]);
+
+    if (columnMap) {
+      // ── Header-guided parsing ──────────────────────────────────────────────
+      for (let i = 1; i < tableRows.length; i++) {
+        const cells = tableRows[i];
+        if (cells.length <= Math.max(columnMap.gradeCol, columnMap.priceCol)) continue;
+
+        const gradeText = cells[columnMap.gradeCol]?.trim() || "";
+        const priceText = cells[columnMap.priceCol]?.trim() || "";
+
+        if (!gradeText || !priceText) continue;
+
+        // Skip rows where the "grade" cell looks like a sub-header or section label
+        // (all letters, no digits — e.g. "Nhat Huy Group")
+        if (!/\d/.test(gradeText)) continue;
+
+        const expandedGrades = expandGrades(gradeText);
+        if (expandedGrades.length === 0) continue;
+
+        const priceUsd = normalizePrice(priceText);
+        if (!priceUsd) continue;
+
+        rows.push({
+          rawGradeText: gradeText,
+          expandedGrades,
+          rawPriceText: priceText,
+          priceUsd,
+          incoterm: emailIncoterm,
+          port: emailPort,
+        });
+      }
+    } else {
+      // ── Heuristic parsing (no recognizable header) ─────────────────────────
+      for (const cells of tableRows) {
+        const parsed = parseRowCells(cells, emailIncoterm, emailPort);
+        if (parsed) {
+          rows.push(parsed);
+        }
       }
     }
   }
@@ -55,10 +108,41 @@ export function parseEmailHtml(html: string): ParseResult {
   return { rows, warnings, tableCount: tables.length };
 }
 
+// ── Column-map detection ────────────────────────────────────────────────────
+
 /**
- * Extract rows from an HTML table. Returns array of cell text arrays.
+ * Given the header row cells, return which column index holds grades and prices.
+ * Returns null if we can't identify both columns.
  */
-function extractTableRows(tableHtml: string): string[][] {
+function detectColumnMap(headerCells: string[]): ColumnMap | null {
+  let gradeCol = -1;
+  let priceCol = -1;
+
+  for (let i = 0; i < headerCells.length; i++) {
+    const h = headerCells[i].toLowerCase();
+
+    // Grade column: "Grade", "Grado", "Code", "Codigo", "Ref"
+    if (gradeCol === -1 && /\b(grade|grado|cod(igo)?|code|ref(erencia)?)\b/.test(h)) {
+      gradeCol = i;
+      continue;
+    }
+
+    // Price column: "$", "USD", "Price", "Precio", "CFR", "FOB", "CIF", "/MT", "/TM", "/ton"
+    if (priceCol === -1 && /(\$|price|precio|usd|cfr|fob|cif|costo|\/mt|\/tm|\/ton)/.test(h)) {
+      priceCol = i;
+    }
+  }
+
+  if (gradeCol === -1 || priceCol === -1) return null;
+  return { gradeCol, priceCol };
+}
+
+// ── Row extraction ──────────────────────────────────────────────────────────
+
+/**
+ * Extract ALL rows (including header) from an HTML table.
+ */
+function extractAllRows(tableHtml: string): string[][] {
   const rows: string[][] = [];
   const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
   let rowMatch;
@@ -70,7 +154,6 @@ function extractTableRows(tableHtml: string): string[][] {
     let cellMatch;
 
     while ((cellMatch = cellRegex.exec(rowContent)) !== null) {
-      // Strip HTML tags and decode entities
       const text = stripHtml(cellMatch[1]).trim();
       cells.push(text);
     }
@@ -83,37 +166,45 @@ function extractTableRows(tableHtml: string): string[][] {
   return rows;
 }
 
+// ── Heuristic row parser (fallback when no header map) ─────────────────────
+
 /**
  * Try to parse a row of cells into a grade/price pair.
  * Heuristic: look for a cell with grade-like text and a cell with price-like text.
  */
-function parseRowCells(cells: string[]): ParsedPriceRow | null {
-  // Skip header rows (header cells have no 3+ digit numbers)
+function parseRowCells(
+  cells: string[],
+  emailIncoterm: string,
+  emailPort: string,
+): ParsedPriceRow | null {
+  // Skip header rows
   const headerKeywords = ["grade", "grado", "precio", "price", "material", "product", "cfr", "fob", "cif"];
   const isHeader = cells.some((c) =>
     headerKeywords.some((kw) => c.toLowerCase() === kw || c.toLowerCase().startsWith(kw + " "))
   );
   if (isHeader && cells.every((c) => !/^\d{3,}$/.test(c.replace(/[,.\s]/g, "")))) {
-    return null; // Likely a header row
+    return null;
   }
 
-  // Strategy: grade codes START with letters and contain numbers (e.g. GP5000, HP9450, JM-350)
-  // Prices are standalone numbers (e.g. 1285, 1,295, USD 1395)
   let gradeText: string | null = null;
   let priceText: string | null = null;
 
   for (const cell of cells) {
     if (!cell) continue;
 
-    // Grade detection FIRST: starts with letter(s) followed by digits
-    // e.g. GP5000, HP9450, JM-350, HDPE123, HP825F
-    if (!gradeText && /^[A-Za-z]{1,6}[\-\/]?[A-Za-z0-9\-\/\s]*\d/.test(cell) && cell.length <= 30) {
+    // Grade: starts with 1–6 letters then digits, length ≤ 30
+    // But NOT pure "MI X" patterns (melt index specs)
+    if (
+      !gradeText &&
+      /^[A-Za-z]{1,6}[\-\/]?[A-Za-z0-9\-\/\s]*\d/.test(cell) &&
+      cell.length <= 30 &&
+      !/^MI\s/i.test(cell) // exclude melt-index specs
+    ) {
       gradeText = cell;
       continue;
     }
 
-    // Price detection: standalone number possibly with currency symbol
-    // Must not start with a letter (to avoid matching grade codes)
+    // Price: standalone number possibly with currency symbol
     if (
       !priceText &&
       /^(?:USD|US\$|\$)?\s*\d[\d,.\s]*$/.test(cell.trim()) &&
@@ -123,9 +214,12 @@ function parseRowCells(cells: string[]): ParsedPriceRow | null {
       continue;
     }
 
-    // Fallback: if we have a grade but no price yet, any cell with 3+ digit number
+    // Fallback: if grade is set and no price yet, any 3+ digit number
     if (gradeText && !priceText && /\d{3,}/.test(cell.replace(/[,.\s]/g, ""))) {
-      priceText = cell;
+      // But reject cells that are themselves valid grade codes (start with letter)
+      if (!/^[A-Za-z]/.test(cell.trim())) {
+        priceText = cell;
+      }
     }
   }
 
@@ -134,10 +228,9 @@ function parseRowCells(cells: string[]): ParsedPriceRow | null {
   const expandedGrades = expandGrades(gradeText);
   const priceUsd = priceText ? normalizePrice(priceText) : null;
 
-  // Detect incoterm and port from surrounding text
   const fullText = cells.join(" ");
-  const incoterm = detectIncoterm(fullText);
-  const port = detectPort(fullText);
+  const incoterm = detectIncoterm(fullText) || emailIncoterm;
+  const port = detectPort(fullText) || emailPort;
 
   return {
     rawGradeText: gradeText,
@@ -149,17 +242,19 @@ function parseRowCells(cells: string[]): ParsedPriceRow | null {
   };
 }
 
+// ── Text fallback (no tables) ───────────────────────────────────────────────
+
 /**
  * Fallback parser for non-table email content.
- * Looks for patterns like "GRADE — PRICE" or "GRADE: PRICE"
  */
 function parseTextFallback(text: string, warnings: string[]): ParsedPriceRow[] {
   const rows: ParsedPriceRow[] = [];
   const cleanText = stripHtml(text);
   const lines = cleanText.split(/\n/).map((l) => l.trim()).filter(Boolean);
+  const emailIncoterm = detectIncoterm(cleanText);
+  const emailPort = detectPort(cleanText);
 
   for (const line of lines) {
-    // Pattern: "GRADE_CODE — PRICE" or "GRADE_CODE - PRICE" or "GRADE_CODE PRICE"
     const match = line.match(
       /([A-Za-z0-9\-\/\s]+?)\s*[—\-:]\s*(\$?\s*[\d,.\s]+)/
     );
@@ -167,7 +262,6 @@ function parseTextFallback(text: string, warnings: string[]): ParsedPriceRow[] {
       const gradeText = match[1].trim();
       const priceText = match[2].trim();
 
-      // Filter out obvious non-grades
       if (gradeText.length < 2 || gradeText.length > 50) continue;
 
       const expandedGrades = expandGrades(gradeText);
@@ -179,8 +273,8 @@ function parseTextFallback(text: string, warnings: string[]): ParsedPriceRow[] {
           expandedGrades,
           rawPriceText: priceText,
           priceUsd,
-          incoterm: detectIncoterm(line),
-          port: detectPort(line),
+          incoterm: detectIncoterm(line) || emailIncoterm,
+          port: detectPort(line) || emailPort,
         });
       }
     }
@@ -193,13 +287,15 @@ function parseTextFallback(text: string, warnings: string[]): ParsedPriceRow[] {
   return rows;
 }
 
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
 function detectIncoterm(text: string): string {
   const upper = text.toUpperCase();
   if (upper.includes("CIF")) return "CIF";
   if (upper.includes("FOB")) return "FOB";
   if (upper.includes("CFR")) return "CFR";
   if (upper.includes("DDP")) return "DDP";
-  return "CFR"; // default
+  return "CFR";
 }
 
 function detectPort(text: string): string {
@@ -207,7 +303,7 @@ function detectPort(text: string): string {
   if (upper.includes("CALLAO") || upper.includes("PECLL")) return "CALLAO";
   if (upper.includes("LIMA")) return "CALLAO";
   if (upper.includes("BUENAVENTURA")) return "BUENAVENTURA";
-  return "CALLAO"; // default for Peru
+  return "CALLAO";
 }
 
 function stripHtml(html: string): string {
