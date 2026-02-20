@@ -14,7 +14,14 @@ export async function GET() {
     .select(`
       id, title, status, payment_terms, shipment_terms,
       total_recipients, total_dispatched, approved_at, created_at,
-      ingestion:price_ingestions(source_subject)
+      ingestion:price_ingestions(source_subject, source_from, created_at),
+      items:quotation_items(
+        price_usd,
+        grade:product_grades(
+          grade_code, uso,
+          family:material_families(code, display_name)
+        )
+      )
     `)
     .eq("tenant_id", TENANT_ID)
     .order("created_at", { ascending: false })
