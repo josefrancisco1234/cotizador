@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 const NAV_ITEMS = [
   { href: "/ingestions", label: "Ingestiones", icon: "📥" },
@@ -16,6 +16,13 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
+
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/login");
+    router.refresh();
+  }
 
   return (
     <div className="flex min-h-screen bg-gray-50">
@@ -44,8 +51,18 @@ export default function DashboardLayout({
             );
           })}
         </nav>
-        <div className="p-4 border-t border-white/10">
-          <p className="text-xs text-white/40">v1.0 MVP</p>
+        <div className="p-4 border-t border-white/10 space-y-3">
+          <p className="text-xs text-white/40">ICD Enterprise &copy; 2026</p>
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-2 text-xs text-white/50 hover:text-white/90 transition-colors w-full"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h6a2 2 0 012 2v1" />
+            </svg>
+            Cerrar sesion
+          </button>
         </div>
       </aside>
 
