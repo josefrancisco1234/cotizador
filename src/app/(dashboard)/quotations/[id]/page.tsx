@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, use, useRef, useCallback } from "react";
+import { useState, useEffect, use, useRef } from "react";
 import Link from "next/link";
 
 interface QuotationItem {
@@ -325,6 +325,7 @@ export default function QuotationDetailPage({
 
             {/* Item toggle bar */}
             {!previewLoading && previewItems.length > 0 && (
+              <>
               <div className="px-5 py-3 bg-gray-50 border-b border-gray-200 flex flex-wrap gap-2 items-center">
                 <span className="text-xs font-medium text-gray-500 mr-1">Items en el correo:</span>
                 {previewItems.map((item) => {
@@ -441,7 +442,8 @@ export default function QuotationDetailPage({
                   </div>
                 </div>
               )}
-
+              </>
+            )}
 
             {/* Email preview — editable iframe */}
             <div className="flex-1 overflow-auto bg-gray-100 p-4">
