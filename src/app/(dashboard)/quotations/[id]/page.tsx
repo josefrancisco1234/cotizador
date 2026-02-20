@@ -68,6 +68,12 @@ export default function QuotationDetailPage({
   const [previewItems, setPreviewItems] = useState<QuotationItem[]>([]);
   // Track which items are hidden in the preview
   const [hiddenItemIds, setHiddenItemIds] = useState<Set<string>>(new Set());
+  // Add-row form
+  const [showAddRow, setShowAddRow] = useState(false);
+  const [newRow, setNewRow] = useState({
+    material: "", grado: "", marca: "", fabricante: "",
+    uso: "", atributos: "", mi: "", precio: "",
+  });
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
@@ -172,6 +178,46 @@ export default function QuotationDetailPage({
       newHidden.add(item.id);
     }
     setHiddenItemIds(newHidden);
+  }
+
+  function addRowToIframe() {
+    const iframe = iframeRef.current;
+    const doc = iframe?.contentDocument || iframe?.contentWindow?.document;
+    if (!doc) return;
+    const tbody = doc.querySelector("tbody");
+    if (!tbody) return;
+
+    const price = parseFloat(newRow.precio.replace(/,/g, "")) || 0;
+    const priceFormatted = price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    const extras = [
+      newRow.uso ? `<span style="color:#718096;">${newRow.uso}</span>` : "",
+      newRow.atributos ? `<span style="color:#718096;">${newRow.atributos}</span>` : "",
+      newRow.mi ? `<span style="color:#718096;">MI: ${newRow.mi}</span>` : "",
+    ].filter(Boolean).join("<br/>");
+
+    const brandLine = [
+      newRow.grado ? `<strong>${newRow.grado}</strong>` : "",
+      newRow.marca ? ` — ${newRow.marca}` : "",
+      newRow.fabricante ? ` <span style="color:#a0aec0;">(${newRow.fabricante})</span>` : "",
+    ].join("");
+
+    const tr = doc.createElement("tr");
+    tr.innerHTML = `
+      <td style="padding:12px 16px;border:1px solid #e2e8f0;color:#2d3748;font-weight:600;vertical-align:top;">
+        ${newRow.material}
+      </td>
+      <td style="padding:12px 16px;border:1px solid #e2e8f0;color:#4a5568;vertical-align:top;font-size:13px;">
+        ${brandLine}${extras ? `<br/>${extras}` : ""}
+      </td>
+      <td style="padding:12px 16px;border:1px solid #e2e8f0;color:#2b6cb0;font-weight:700;font-size:15px;text-align:right;white-space:nowrap;vertical-align:top;">
+        USD ${priceFormatted}/TM<br/><span style="font-size:11px;font-weight:400;color:#718096;">CFR Callao</span>
+      </td>`;
+    tbody.appendChild(tr);
+
+    // Reset form
+    setNewRow({ material: "", grado: "", marca: "", fabricante: "", uso: "", atributos: "", mi: "", precio: "" });
+    setShowAddRow(false);
   }
 
   async function saveDrafts() {
@@ -308,9 +354,94 @@ export default function QuotationDetailPage({
                     </button>
                   );
                 })}
+                {/* Add row button */}
+                <button
+                  onClick={() => setShowAddRow((v) => !v)}
+                  className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700 hover:bg-green-200 transition-colors"
+                  title="Agregar fila al correo"
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  Agregar fila
+                </button>
                 <span className="ml-auto text-xs text-gray-400 italic">Puedes editar el texto directamente en el correo</span>
               </div>
-            )}
+
+              {/* Add-row form */}
+              {showAddRow && (
+                <div className="px-5 py-4 bg-green-50 border-b border-green-200">
+                  <p className="text-xs font-semibold text-green-800 mb-3">Nueva fila en la tabla del correo</p>
+                  <div className="grid grid-cols-4 gap-2 mb-2">
+                    <div>
+                      <label className="text-xs text-gray-500 block mb-1">Material *</label>
+                      <input value={newRow.material} onChange={e => setNewRow(r => ({...r, material: e.target.value}))}
+                        placeholder="Poliestireno Alto Impacto"
+                        className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-green-400" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 block mb-1">Grado *</label>
+                      <input value={newRow.grado} onChange={e => setNewRow(r => ({...r, grado: e.target.value}))}
+                        placeholder="HP9450"
+                        className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-green-400" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 block mb-1">Marca</label>
+                      <input value={newRow.marca} onChange={e => setNewRow(r => ({...r, marca: e.target.value}))}
+                        placeholder="Tairirex"
+                        className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-green-400" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 block mb-1">Fabricante</label>
+                      <input value={newRow.fabricante} onChange={e => setNewRow(r => ({...r, fabricante: e.target.value}))}
+                        placeholder="Ningbo"
+                        className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-green-400" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2 mb-3">
+                    <div>
+                      <label className="text-xs text-gray-500 block mb-1">Uso</label>
+                      <input value={newRow.uso} onChange={e => setNewRow(r => ({...r, uso: e.target.value}))}
+                        placeholder="Extrusion"
+                        className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-green-400" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 block mb-1">Atributos</label>
+                      <input value={newRow.atributos} onChange={e => setNewRow(r => ({...r, atributos: e.target.value}))}
+                        placeholder="Super high impact"
+                        className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-green-400" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 block mb-1">MI</label>
+                      <input value={newRow.mi} onChange={e => setNewRow(r => ({...r, mi: e.target.value}))}
+                        placeholder="MI 3"
+                        className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-green-400" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 block mb-1">Precio USD/TM *</label>
+                      <input value={newRow.precio} onChange={e => setNewRow(r => ({...r, precio: e.target.value}))}
+                        placeholder="1,395"
+                        className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-green-400" />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={addRowToIframe}
+                      disabled={!newRow.material || !newRow.grado || !newRow.precio}
+                      className="px-4 py-1.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-40 font-medium"
+                    >
+                      Insertar fila
+                    </button>
+                    <button
+                      onClick={() => setShowAddRow(false)}
+                      className="px-4 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 text-gray-600"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              )}
+
 
             {/* Email preview — editable iframe */}
             <div className="flex-1 overflow-auto bg-gray-100 p-4">
