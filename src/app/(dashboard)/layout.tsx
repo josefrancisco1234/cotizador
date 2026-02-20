@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
 const NAV_ITEMS = [
   { href: "/ingestions", label: "Ingestiones", icon: "📥" },
@@ -17,12 +18,25 @@ export default function DashboardLayout({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const [checked, setChecked] = useState(false);
 
-  async function handleLogout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.push("/login");
-    router.refresh();
+  useEffect(() => {
+    // Check sessionStorage on every mount (cleared on F5 / new tab)
+    const auth = sessionStorage.getItem("icd_auth");
+    if (!auth) {
+      router.replace("/login");
+    } else {
+      setChecked(true);
+    }
+  }, [router]);
+
+  function handleLogout() {
+    sessionStorage.removeItem("icd_auth");
+    router.replace("/login");
   }
+
+  // Don't render dashboard until auth is confirmed
+  if (!checked) return null;
 
   return (
     <div className="flex min-h-screen bg-gray-50">

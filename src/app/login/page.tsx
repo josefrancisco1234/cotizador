@@ -3,36 +3,28 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+const PASSWORD = "maricarmen";
+
 export default function LoginPage() {
   const router = useRouter();
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError("");
 
-    try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-      });
-
-      if (res.ok) {
-        router.push("/ingestions");
-        router.refresh();
-      } else {
-        setError("Contraseña incorrecta. Intentalo de nuevo.");
-        setPassword("");
-      }
-    } catch {
-      setError("Error de conexion.");
-    } finally {
-      setLoading(false);
+    if (password.toLowerCase() === PASSWORD) {
+      // sessionStorage: cleared when the tab/browser closes or on F5 hard reload
+      sessionStorage.setItem("icd_auth", "1");
+      router.push("/ingestions");
+    } else {
+      setError("Contraseña incorrecta. Intentalo de nuevo.");
+      setPassword("");
     }
+    setLoading(false);
   }
 
   return (
@@ -41,19 +33,16 @@ export default function LoginPage() {
 
         {/* ICD Enterprise Logo */}
         <div className="flex flex-col items-center mb-10">
-          <svg width="180" height="64" viewBox="0 0 180 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-            {/* Background rectangle accent */}
-            <rect x="0" y="8" width="6" height="48" rx="3" fill="#c8a96e"/>
-            {/* ICD text */}
-            <text x="16" y="42" fontFamily="Georgia, serif" fontSize="36" fontWeight="700" fill="#1a365d" letterSpacing="2">ICD</text>
-            {/* ENTERPRISE text below */}
-            <text x="16" y="58" fontFamily="Arial, sans-serif" fontSize="11" fontWeight="400" fill="#c8a96e" letterSpacing="4">ENTERPRISE</text>
+          <svg width="200" height="72" viewBox="0 0 200 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="0" y="10" width="6" height="52" rx="3" fill="#c8a96e"/>
+            <text x="20" y="50" fontFamily="Georgia, serif" fontSize="42" fontWeight="700" fill="#1a365d" letterSpacing="3">ICD</text>
+            <text x="20" y="66" fontFamily="Arial, sans-serif" fontSize="12" fontWeight="400" fill="#c8a96e" letterSpacing="5">ENTERPRISE</text>
           </svg>
         </div>
 
-        <h2 className="text-center text-gray-500 text-sm mb-8 tracking-wide uppercase">
+        <p className="text-center text-gray-400 text-xs mb-8 tracking-widest uppercase">
           Sistema de Cotizaciones B2B
-        </h2>
+        </p>
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
@@ -67,9 +56,8 @@ export default function LoginPage() {
               placeholder="••••••••••"
               autoFocus
               required
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400
-                         focus:outline-none focus:ring-2 focus:ring-[#1a365d] focus:border-transparent
-                         text-base"
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg text-gray-900
+                         focus:outline-none focus:ring-2 focus:ring-[#1a365d] focus:border-transparent text-base"
             />
           </div>
 
