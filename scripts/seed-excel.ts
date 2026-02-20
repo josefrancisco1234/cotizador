@@ -310,15 +310,23 @@ async function main() {
     }
   }
 
+  // Deduplicate clients by client_code (keep last occurrence)
+  const clientMap = new Map<string, Record<string, unknown>>();
+  for (const c of clientInserts) {
+    clientMap.set(c.client_code as string, c);
+  }
+  const dedupedClients = Array.from(clientMap.values());
+  console.log(`   ${clientInserts.length} rows → ${dedupedClients.length} unique clients after dedup`);
+
   // Insert clients
-  for (let i = 0; i < clientInserts.length; i += 50) {
-    const chunk = clientInserts.slice(i, i + 50);
+  for (let i = 0; i < dedupedClients.length; i += 50) {
+    const chunk = dedupedClients.slice(i, i + 50);
     const { error } = await supabase
       .from("clients")
       .upsert(chunk, { onConflict: "tenant_id,client_code" });
     if (error) console.error(`   Client insert error at batch ${i}:`, error.message);
   }
-  console.log(`   ${clientInserts.length} clients imported`);
+  console.log(`   ${dedupedClients.length} clients imported`);
 
   // Fetch client IDs for contact mapping
   const { data: clients } = await supabase
@@ -332,20 +340,28 @@ async function main() {
   }
 
   // Insert contacts (with client_id resolved)
-  const contactsWithIds = contactInserts
+  const contactsRaw = contactInserts
     .map((c) => {
       const clientId = clientIdMap.get(c.client_code as string);
       if (!clientId) return null;
       const { client_code, ...rest } = c;
       return { ...rest, client_id: clientId };
     })
-    .filter(Boolean);
+    .filter(Boolean) as Record<string, unknown>[];
+
+  // Deduplicate by conflict key
+  const contactUnique = new Map<string, Record<string, unknown>>();
+  for (const c of contactsRaw) {
+    const key = `${c.tenant_id}|${c.client_id}|${c.department}|${c.channel}|${c.channel_value}`;
+    contactUnique.set(key, c);
+  }
+  const contactsWithIds = Array.from(contactUnique.values());
 
   for (let i = 0; i < contactsWithIds.length; i += 50) {
     const chunk = contactsWithIds.slice(i, i + 50);
     const { error } = await supabase
       .from("client_contacts")
-      .upsert(chunk as Record<string, unknown>[], {
+      .upsert(chunk, {
         onConflict: "tenant_id,client_id,department,channel,channel_value",
       });
     if (error) console.error(`   Contact insert error at batch ${i}:`, error.message);
@@ -360,6 +376,7 @@ async function main() {
   const prefInserts: Record<string, unknown>[] = [];
   let skippedPrefs = 0;
 
+  const skipReasons = new Map<string, number>();
   for (const row of prefRows) {
     const clientCode = str(row["codigo cliente"]);
     const familiaRaw = str(row["FAMILIA"]);
@@ -370,6 +387,8 @@ async function main() {
 
     if (!clientId || !familyId) {
       skippedPrefs++;
+      const reason = !clientId ? `NO_CLIENT:${clientCode}` : `NO_FAMILY:${familiaRaw}`;
+      skipReasons.set(reason, (skipReasons.get(reason) || 0) + 1);
       continue;
     }
 
@@ -404,6 +423,12 @@ async function main() {
     if (error) console.error(`   Pref insert error at batch ${i}:`, error.message);
   }
   console.log(`   ${dedupedPrefs.length} preferences imported (${skippedPrefs} skipped, ${prefInserts.length - dedupedPrefs.length} deduplicated)`);
+  if (skipReasons.size > 0) {
+    console.log("   Skip reasons:");
+    for (const [reason, count] of [...skipReasons.entries()].sort((a,b) => b[1]-a[1])) {
+      console.log(`     ${count}x ${reason}`);
+    }
+  }
 
   // Summary
   console.log("\n=== IMPORT COMPLETE ===");
