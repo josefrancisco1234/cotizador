@@ -69,19 +69,27 @@ export function matchGradesInText(
 
 /**
  * Merge two lists of ParsedPriceRow, preferring rows from `primary`.
- * Rows in `secondary` are added only if no row in `primary` shares the same
- * normalized grade code.
+ * Deduplicates by expandedGrades (normalized) so that "LD220C mi2 with add"
+ * (LLM output with expandedGrades=["LD220C"]) and "LD220C" (dictionary output)
+ * are correctly recognised as the same grade.
  */
 export function mergeParseRows(
   primary: ParsedPriceRow[],
   secondary: ParsedPriceRow[],
 ): ParsedPriceRow[] {
-  const keys = new Set(
-    primary.map((r) => r.rawGradeText.toUpperCase().replace(/[\s\-\.]/g, "")),
-  );
+  const norm = (s: string) => s.toUpperCase().replace(/[\s\-\.]/g, "");
 
+  // Collect all grade codes already covered by primary results
+  const seen = new Set<string>();
+  for (const r of primary) {
+    for (const g of r.expandedGrades) seen.add(norm(g));
+    // Also index the rawGradeText token in case expandedGrades is empty
+    seen.add(norm(r.rawGradeText));
+  }
+
+  // Add secondary rows only when none of their grade codes are already seen
   const extras = secondary.filter(
-    (r) => !keys.has(r.rawGradeText.toUpperCase().replace(/[\s\-\.]/g, "")),
+    (r) => r.expandedGrades.every((g) => !seen.has(norm(g))),
   );
 
   return [...primary, ...extras];
