@@ -27,7 +27,10 @@ export default function IngestionsPage() {
   const [ingestions, setIngestions] = useState<Ingestion[]>([]);
   const [loading, setLoading] = useState(false);
   const [showPaste, setShowPaste] = useState(false);
+  const [showWaPaste, setShowWaPaste] = useState(false);
   const [htmlInput, setHtmlInput] = useState("");
+  const [waInput, setWaInput] = useState("");
+  const [waFrom, setWaFrom] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [checkingGmail, setCheckingGmail] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -119,6 +122,35 @@ export default function IngestionsPage() {
     }
   }
 
+  async function submitWhatsApp() {
+    if (!waInput.trim()) return;
+    setSubmitting(true);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/ingestions/whatsapp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: waInput, from: waFrom }),
+      });
+      const json = await res.json();
+      if (res.ok && !json.skipped) {
+        setMessage({ type: "success", text: json.message });
+        setWaInput("");
+        setWaFrom("");
+        setShowWaPaste(false);
+        loadIngestions();
+      } else if (json.skipped) {
+        setMessage({ type: "error", text: json.message });
+      } else {
+        setMessage({ type: "error", text: json.error || "Error al procesar" });
+      }
+    } catch {
+      setMessage({ type: "error", text: "Error de conexion" });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   // Load on first render
   if (ingestions.length === 0 && !loading) {
     loadIngestions();
@@ -150,10 +182,19 @@ export default function IngestionsPage() {
             {checkingGmail ? "Revisando..." : "Revisar Gmail"}
           </button>
           <button
-            onClick={() => setShowPaste(!showPaste)}
+            onClick={() => { setShowWaPaste(!showWaPaste); setShowPaste(false); }}
+            className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+            </svg>
+            Pegar WhatsApp
+          </button>
+          <button
+            onClick={() => { setShowPaste(!showPaste); setShowWaPaste(false); }}
             className="px-4 py-2 text-sm bg-[#1a365d] text-white rounded-lg hover:bg-[#2a4a7d]"
           >
-            + Nueva Ingestion
+            + Email HTML
           </button>
         </div>
       </div>
@@ -165,6 +206,48 @@ export default function IngestionsPage() {
           }`}
         >
           {message.text}
+        </div>
+      )}
+
+      {/* WhatsApp Paste Form */}
+      {showWaPaste && (
+        <div className="bg-white border border-green-200 rounded-xl p-6 mb-6 shadow-sm">
+          <div className="flex items-center gap-2 mb-1">
+            <svg className="w-5 h-5 text-green-600" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+            </svg>
+            <h2 className="text-lg font-semibold text-gray-900">Pegar mensaje de WhatsApp</h2>
+          </div>
+          <p className="text-sm text-gray-500 mb-4">
+            Copia el texto del mensaje del proveedor y pégalo aquí. Sin LLM — costo cero.
+          </p>
+          <input
+            value={waFrom}
+            onChange={(e) => setWaFrom(e.target.value)}
+            placeholder="Teléfono o nombre del proveedor (opcional, ej. +51999999999)"
+            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 mb-3"
+          />
+          <textarea
+            value={waInput}
+            onChange={(e) => setWaInput(e.target.value)}
+            placeholder={"Pega el mensaje aquí, ej:\n3x40FT GP5500 US$ 1245 CFR 25KG Org bags\nShipment: Feb 2026"}
+            className="w-full h-36 p-4 border border-gray-300 rounded-lg font-mono text-sm resize-y focus:outline-none focus:ring-2 focus:ring-green-500"
+          />
+          <div className="flex gap-3 mt-4">
+            <button
+              onClick={submitWhatsApp}
+              disabled={submitting || !waInput.trim()}
+              className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium"
+            >
+              {submitting ? "Procesando..." : "Procesar mensaje"}
+            </button>
+            <button
+              onClick={() => { setShowWaPaste(false); setWaInput(""); setWaFrom(""); }}
+              className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+            >
+              Cancelar
+            </button>
+          </div>
         </div>
       )}
 
@@ -239,7 +322,19 @@ export default function IngestionsPage() {
                     })}
                   </td>
                   <td className="px-6 py-4 text-gray-900 font-medium">
-                    {ing.source_subject || "Manual paste"}
+                    <div className="flex items-center gap-2">
+                      {ing.source_type === "whatsapp" ? (
+                        <span className="inline-flex items-center gap-1 text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded">
+                          <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                          </svg>
+                          WA
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">✉</span>
+                      )}
+                      {ing.source_subject || (ing.source_type === "whatsapp" ? "WhatsApp" : "Manual paste")}
+                    </div>
                   </td>
                   <td className="px-6 py-4 text-gray-600">{ing.source_from || "-"}</td>
                   <td className="px-6 py-4 text-center">{ing.grades_found}</td>

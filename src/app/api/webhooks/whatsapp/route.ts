@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { processWhatsAppMessage } from "@/lib/engine/whatsapp-ingestion";
+
+const TENANT_ID = process.env.DEFAULT_TENANT_ID!;
 
 /**
  * GET /api/webhooks/whatsapp - Webhook verification (Meta handshake)
@@ -30,7 +33,29 @@ export async function POST(request: NextRequest) {
   for (const entry of entries) {
     const changes = entry?.changes || [];
     for (const change of changes) {
-      const statuses = change?.value?.statuses || [];
+      const value = change?.value || {};
+
+      // ── Inbound messages from suppliers ───────────────────────────────────
+      const messages = value.messages || [];
+      for (const message of messages) {
+        if (message.type !== "text") continue; // only handle text messages
+        const body = message.text?.body;
+        if (!body?.trim()) continue;
+
+        try {
+          await processWhatsAppMessage(supabase, TENANT_ID, {
+            messageId: message.id,
+            from: message.from,
+            body,
+            timestamp: message.timestamp,
+          });
+        } catch (err) {
+          console.error("WhatsApp inbound parse error:", (err as Error).message);
+        }
+      }
+
+      // ── Outbound delivery status updates ──────────────────────────────────
+      const statuses = value.statuses || [];
       for (const status of statuses) {
         const messageId = status.id;
         const statusValue = status.status; // sent, delivered, read, failed
