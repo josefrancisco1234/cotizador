@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ingestionCreateSchema } from "@/lib/validators/schemas";
 import { parseEmailHtml } from "@/lib/engine/email-parser";
-import { parseEmailWithLLM } from "@/lib/engine/llm-parser";
+import { parseEmailWithLLM, stripToText } from "@/lib/engine/llm-parser";
+import { matchGradesInText, mergeParseRows } from "@/lib/engine/dictionary-matcher";
 
 const TENANT_ID = process.env.DEFAULT_TENANT_ID!;
 
@@ -28,6 +29,11 @@ export async function GET() {
 
 /**
  * POST /api/ingestions - Create new ingestion from HTML email content
+ *
+ * Parse strategy:
+ * 1. LLM (GPT) or regex → primary parse
+ * 2. Dictionary scan: find known grade codes from product_grades in the text
+ * 3. Merge results so no grade is missed
  */
 export async function POST(request: NextRequest) {
   const supabase = createAdminClient();
@@ -57,7 +63,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Parse: try GPT first, fall back to regex parser
+  // ── Step 1: LLM or regex primary parse ──────────────────────────────────
   let parseResult;
   let usedLLM = false;
   if (process.env.OPENAI_API_KEY) {
@@ -70,6 +76,25 @@ export async function POST(request: NextRequest) {
     }
   } else {
     parseResult = parseEmailHtml(rawHtml);
+  }
+
+  // ── Step 2: Dictionary scan augmentation ────────────────────────────────
+  try {
+    const { data: gradeRows } = await supabase
+      .from("product_grades")
+      .select("grade_code")
+      .eq("tenant_id", TENANT_ID)
+      .eq("is_active", true);
+
+    if (gradeRows && gradeRows.length > 0) {
+      const gradeCodes = gradeRows.map((r: { grade_code: string }) => r.grade_code);
+      const plainText = stripToText(rawHtml);
+      const dictMatches = matchGradesInText(plainText, gradeCodes);
+      parseResult = { ...parseResult, rows: mergeParseRows(parseResult.rows, dictMatches) };
+    }
+  } catch (dictErr) {
+    console.error("Dictionary scan failed:", (dictErr as Error).message);
+    // Non-fatal: continue with primary parse result
   }
 
   // Create ingestion record

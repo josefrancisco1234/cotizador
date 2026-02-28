@@ -81,7 +81,7 @@ export async function parseEmailWithLLM(html: string): Promise<ParseResult> {
   };
 }
 
-function stripToText(html: string): string {
+export function stripToText(html: string): string {
   return html
     .replace(/<style[\s\S]*?<\/style>/gi, "")
     .replace(/<script[\s\S]*?<\/script>/gi, "")
