@@ -4,6 +4,7 @@ import { ingestionCreateSchema } from "@/lib/validators/schemas";
 import { parseEmailHtml } from "@/lib/engine/email-parser";
 import { parseEmailWithLLM, stripToText } from "@/lib/engine/llm-parser";
 import { matchGradesInText, mergeParseRows } from "@/lib/engine/dictionary-matcher";
+import { findUnknownGrades, saveUnknownGrades } from "@/lib/engine/unknown-grades";
 
 const TENANT_ID = process.env.DEFAULT_TENANT_ID!;
 
@@ -91,6 +92,13 @@ export async function POST(request: NextRequest) {
       const plainText = stripToText(rawHtml);
       const dictMatches = matchGradesInText(plainText, gradeCodes);
       parseResult = { ...parseResult, rows: mergeParseRows(parseResult.rows, dictMatches) };
+
+      // Save unknown grades silently to grades_to_review table
+      const unknown = findUnknownGrades(
+        parseResult.rows.map((r) => r.expandedGrades),
+        gradeCodes,
+      );
+      await saveUnknownGrades(supabase, TENANT_ID, unknown, "ingestion");
     }
   } catch (dictErr) {
     console.error("Dictionary scan failed:", (dictErr as Error).message);

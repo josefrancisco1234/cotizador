@@ -31,7 +31,6 @@ export default function FormatsPage() {
   const [parsing, setParsing] = useState(false);
   const [parsedRows, setParsedRows] = useState<ParsedRow[] | null>(null);
   const [parseWarnings, setParseWarnings] = useState<string[]>([]);
-  const [unknownGrades, setUnknownGrades] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -55,7 +54,6 @@ export default function FormatsPage() {
     setParsing(true);
     setParsedRows(null);
     setParseWarnings([]);
-    setUnknownGrades([]);
     setMessage(null);
     try {
       const res = await fetch("/api/formats/parse-preview", {
@@ -67,7 +65,6 @@ export default function FormatsPage() {
       if (res.ok) {
         setParsedRows(json.rows || []);
         setParseWarnings(json.warnings || []);
-        setUnknownGrades(json.unknownGrades || []);
       } else {
         setMessage({ type: "error", text: json.error });
       }
@@ -265,27 +262,6 @@ export default function FormatsPage() {
               </>
             )}
 
-            {/* Unknown grades — not in BD0_DICCIONARIO */}
-            {unknownGrades.length > 0 && (
-              <div className="mt-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
-                <p className="text-xs font-semibold text-orange-800 mb-2">
-                  Grados no encontrados en el diccionario ({unknownGrades.length}) — agregalos al Excel para la próxima:
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {unknownGrades.map((g, i) => (
-                    <span key={i} className="font-mono text-xs bg-orange-100 text-orange-900 px-2 py-0.5 rounded border border-orange-300">
-                      {g}
-                    </span>
-                  ))}
-                </div>
-                <button
-                  onClick={() => navigator.clipboard.writeText(unknownGrades.join("\n"))}
-                  className="mt-2 text-xs text-orange-700 hover:text-orange-900 underline"
-                >
-                  Copiar todos
-                </button>
-              </div>
-            )}
           </div>
         )}
       </div>
