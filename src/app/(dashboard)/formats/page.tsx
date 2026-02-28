@@ -20,9 +20,21 @@ interface FormatExample {
   created_at: string;
 }
 
+interface UnknownGrade {
+  id: string;
+  grade_code: string;
+  times_seen: number;
+  last_seen_at: string;
+  source: string;
+  added_to_dict: boolean;
+}
+
 export default function FormatsPage() {
   const [examples, setExamples] = useState<FormatExample[]>([]);
   const [loading, setLoading] = useState(true);
+  const [unknownGrades, setUnknownGrades] = useState<UnknownGrade[]>([]);
+  const [unknownLoading, setUnknownLoading] = useState(true);
+  const [markingId, setMarkingId] = useState<string | null>(null);
 
   // Test area state
   const [testText, setTestText] = useState("");
@@ -39,6 +51,7 @@ export default function FormatsPage() {
 
   useEffect(() => {
     loadExamples();
+    loadUnknownGrades();
   }, []);
 
   async function loadExamples() {
@@ -47,6 +60,23 @@ export default function FormatsPage() {
     const json = await res.json();
     setExamples(json.data || []);
     setLoading(false);
+  }
+
+  async function loadUnknownGrades() {
+    setUnknownLoading(true);
+    const res = await fetch("/api/grades-to-review");
+    const json = await res.json();
+    setUnknownGrades(json.data || []);
+    setUnknownLoading(false);
+  }
+
+  async function markAsAdded(id: string) {
+    setMarkingId(id);
+    const res = await fetch(`/api/grades-to-review?id=${id}`, { method: "PATCH" });
+    if (res.ok) {
+      setUnknownGrades((prev) => prev.filter((g) => g.id !== id));
+    }
+    setMarkingId(null);
   }
 
   async function parseText() {
@@ -345,6 +375,71 @@ export default function FormatsPage() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── UNKNOWN GRADES ─────────────────────────────────── */}
+      <div className="mt-6 bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">Grados No Identificados</h2>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Aparecieron en correos pero no están en BD0_DICCIONARIO. Agrégalos al Excel y márcalos como revisados.
+            </p>
+          </div>
+          {!unknownLoading && unknownGrades.length > 0 && (
+            <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">
+              {unknownGrades.length} pendiente(s)
+            </span>
+          )}
+        </div>
+
+        {unknownLoading ? (
+          <div className="p-6 text-center text-gray-400 text-sm">Cargando...</div>
+        ) : unknownGrades.length === 0 ? (
+          <div className="p-6 text-center text-gray-400 text-sm">
+            Todos los grados encontrados están en el diccionario.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="text-left px-4 py-2 text-xs font-medium text-gray-500">Grado</th>
+                  <th className="text-center px-4 py-2 text-xs font-medium text-gray-500">Visto</th>
+                  <th className="text-left px-4 py-2 text-xs font-medium text-gray-500">Última vez</th>
+                  <th className="text-left px-4 py-2 text-xs font-medium text-gray-500">Fuente</th>
+                  <th className="px-4 py-2"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {unknownGrades.map((g) => (
+                  <tr key={g.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-2 font-mono font-semibold text-gray-900">{g.grade_code}</td>
+                    <td className="px-4 py-2 text-center">
+                      <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">
+                        {g.times_seen}x
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 text-xs text-gray-500">
+                      {new Date(g.last_seen_at).toLocaleDateString("es-PE")}
+                    </td>
+                    <td className="px-4 py-2 text-xs text-gray-400">{g.source}</td>
+                    <td className="px-4 py-2 text-right">
+                      <button
+                        onClick={() => markAsAdded(g.id)}
+                        disabled={markingId === g.id}
+                        className="text-xs text-green-700 hover:text-green-900 hover:underline disabled:opacity-40"
+                        title="Marcar como agregado al diccionario"
+                      >
+                        {markingId === g.id ? "..." : "Agregado al Excel ✓"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
