@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { checkInboxForPriceEmails } from "@/lib/gmail/check-inbox";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { parseEmailHtml } from "@/lib/engine/email-parser";
+import { parseEmailWithLLM } from "@/lib/engine/llm-parser";
 import { runMatchingForIngestion } from "@/lib/engine/matching-engine";
 
 const CRON_SECRET = process.env.CRON_SECRET;
@@ -56,7 +57,16 @@ export async function GET(request: NextRequest) {
       try {
         // Parse HTML if not already parsed
         if (!ingestion.parsed_data && ingestion.raw_html) {
-          const parseResult = parseEmailHtml(ingestion.raw_html);
+          let parseResult;
+          if (process.env.OPENAI_API_KEY) {
+            try {
+              parseResult = await parseEmailWithLLM(ingestion.raw_html);
+            } catch {
+              parseResult = parseEmailHtml(ingestion.raw_html);
+            }
+          } else {
+            parseResult = parseEmailHtml(ingestion.raw_html);
+          }
 
           // Create price entries
           const priceEntries = [];

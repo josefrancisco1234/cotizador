@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ingestionCreateSchema } from "@/lib/validators/schemas";
 import { parseEmailHtml } from "@/lib/engine/email-parser";
+import { parseEmailWithLLM } from "@/lib/engine/llm-parser";
 
 const TENANT_ID = process.env.DEFAULT_TENANT_ID!;
 
@@ -56,8 +57,20 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Parse the HTML
-  const parseResult = parseEmailHtml(rawHtml);
+  // Parse: try GPT first, fall back to regex parser
+  let parseResult;
+  let usedLLM = false;
+  if (process.env.OPENAI_API_KEY) {
+    try {
+      parseResult = await parseEmailWithLLM(rawHtml);
+      usedLLM = true;
+    } catch (llmErr) {
+      console.error("LLM parse failed, falling back to regex:", (llmErr as Error).message);
+      parseResult = parseEmailHtml(rawHtml);
+    }
+  } else {
+    parseResult = parseEmailHtml(rawHtml);
+  }
 
   // Create ingestion record
   const { data: ingestion, error: ingErr } = await supabase
@@ -114,6 +127,7 @@ export async function POST(request: NextRequest) {
       rowsFound: parseResult.rows.length,
       gradesExpanded: priceEntries.length,
       warnings: parseResult.warnings,
+      parser: usedLLM ? "gpt" : "regex",
     },
   }, { status: 201 });
 }
