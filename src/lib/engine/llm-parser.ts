@@ -8,7 +8,11 @@ import OpenAI from "openai";
 import { ParseResult, ParsedPriceRow } from "./email-parser";
 import { expandGrades } from "./grade-normalizer";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Client is created lazily inside the function so module evaluation
+// at build time does not throw when OPENAI_API_KEY is absent.
+function getOpenAI() {
+  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+}
 
 const SYSTEM_PROMPT = `You are an assistant that extracts resin price data from supplier emails.
 
@@ -42,6 +46,7 @@ export async function parseEmailWithLLM(html: string): Promise<ParseResult> {
   // Truncate to avoid token limits (keep first 6000 chars — enough for any price email)
   const truncated = text.length > 6000 ? text.slice(0, 6000) + "\n[truncated]" : text;
 
+  const openai = getOpenAI();
   const completion = await openai.chat.completions.create({
     model: "gpt-4o-mini", // cheap, fast, very capable for structured extraction
     messages: [
