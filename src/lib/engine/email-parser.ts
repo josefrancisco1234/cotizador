@@ -66,14 +66,18 @@ export function parseEmailHtml(html: string): ParseResult {
         const cells = tableRows[i];
         if (cells.length <= Math.max(columnMap.gradeCol, columnMap.priceCol)) continue;
 
-        const gradeText = cells[columnMap.gradeCol]?.trim() || "";
+        const rawGradeCell = cells[columnMap.gradeCol]?.trim() || "";
         const priceText = cells[columnMap.priceCol]?.trim() || "";
 
-        if (!gradeText || !priceText) continue;
+        if (!rawGradeCell || !priceText) continue;
 
-        // Skip rows where the "grade" cell looks like a sub-header or section label
-        // (all letters, no digits — e.g. "Nhat Huy Group")
-        if (!/\d/.test(gradeText)) continue;
+        // Skip rows where the grade cell has no digits (section headers like "Nhat Huy Group")
+        if (!/\d/.test(rawGradeCell)) continue;
+
+        // Extract just the grade code from the cell.
+        // Cells can contain extra text like "LD220C mi2 with add" or "Icelene HB3553".
+        // Take the first token that starts with a letter AND contains a digit.
+        const gradeText = extractGradeToken(rawGradeCell);
 
         const expandedGrades = expandGrades(gradeText);
         if (expandedGrades.length === 0) continue;
@@ -82,7 +86,7 @@ export function parseEmailHtml(html: string): ParseResult {
         if (!priceUsd) continue;
 
         rows.push({
-          rawGradeText: gradeText,
+          rawGradeText: rawGradeCell, // keep full cell for display
           expandedGrades,
           rawPriceText: priceText,
           priceUsd,
@@ -332,6 +336,28 @@ function tryPatternDashColon(line: string): { grade: string; price: string } | n
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Extract the actual grade code token from a cell that may contain extra text.
+ * Examples:
+ *   "LD220C mi2 with add"   → "LD220C"
+ *   "Icelene HB3553"        → "HB3553"  (skip all-letter brand names)
+ *   "HB-W952-A soplado HMW" → "HB-W952-A"
+ *   "N202"                  → "N202"
+ *
+ * Strategy: return the first whitespace-separated token that both
+ * starts with a letter AND contains at least one digit.
+ * Falls back to the full cell text if nothing matches.
+ */
+function extractGradeToken(cell: string): string {
+  const tokens = cell.split(/\s+/);
+  for (const token of tokens) {
+    if (/^[A-Za-z]/.test(token) && /\d/.test(token)) {
+      return token;
+    }
+  }
+  return cell; // fallback
+}
 
 function detectIncoterm(text: string): string {
   const upper = text.toUpperCase();
