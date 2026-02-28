@@ -8,6 +8,7 @@ import { parseEmailHtml } from "./email-parser";
 import { stripToText } from "./llm-parser";
 import { matchGradesInText, mergeParseRows } from "./dictionary-matcher";
 import { findUnknownGrades, saveUnknownGrades } from "./unknown-grades";
+import { matchGradeToRecipients } from "./matching-engine";
 
 interface WhatsAppMessage {
   messageId: string;   // wamid_xxx — used for idempotency
@@ -126,14 +127,55 @@ export async function processWhatsAppMessage(
     }
   }
 
+  let insertedEntries: Array<{ id: string; raw_grade_text: string; price_usd: number }> = [];
   if (priceEntries.length > 0) {
-    const { error: peErr } = await supabase.from("price_entries").insert(priceEntries);
+    const { data: inserted, error: peErr } = await supabase
+      .from("price_entries")
+      .insert(priceEntries)
+      .select("id, raw_grade_text, price_usd");
     if (peErr) console.error("WhatsApp price entries error:", peErr.message);
+    insertedEntries = inserted || [];
   }
+
+  // ── Step 5: Auto-matching (no manual click needed) ────────────────────────
+  let totalMatched = 0;
+  for (const entry of insertedEntries) {
+    try {
+      const result = await matchGradeToRecipients(
+        supabase,
+        tenantId,
+        entry.raw_grade_text,
+        entry.price_usd,
+      );
+      if (result.grade) {
+        await supabase
+          .from("price_entries")
+          .update({
+            grade_id: result.grade.id,
+            is_matched: true,
+            match_confidence: result.status === "matched" ? 1.0 : 0.8,
+          })
+          .eq("id", entry.id);
+        totalMatched++;
+      }
+    } catch (matchErr) {
+      console.error("Auto-match error for", entry.raw_grade_text, (matchErr as Error).message);
+    }
+  }
+
+  // Update ingestion with match counts and set status to completed
+  await supabase
+    .from("price_ingestions")
+    .update({
+      grades_matched: totalMatched,
+      grades_unknown: insertedEntries.length - totalMatched,
+      status: totalMatched > 0 ? "completed" : "processing",
+    })
+    .eq("id", ingestion.id);
 
   return {
     ingestionId: ingestion.id,
-    gradesFound: priceEntries.length,
+    gradesFound: insertedEntries.length,
     skipped: false,
   };
 }
