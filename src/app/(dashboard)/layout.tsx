@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { href: "/quotations", label: "Cotizaciones", icon: "📋" },
   { href: "/clients", label: "Clientes", icon: "👥" },
   { href: "/grades", label: "Biblia Tecnica", icon: "📚" },
+  { href: "/formats", label: "Formatos Email", icon: "🧪" },
 ];
 
 export default function DashboardLayout({

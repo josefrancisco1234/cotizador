@@ -246,6 +246,7 @@ function parseRowCells(
 
 /**
  * Fallback parser for non-table email content.
+ * Tries multiple text patterns in order.
  */
 function parseTextFallback(text: string, warnings: string[]): ParsedPriceRow[] {
   const rows: ParsedPriceRow[] = [];
@@ -255,23 +256,18 @@ function parseTextFallback(text: string, warnings: string[]): ParsedPriceRow[] {
   const emailPort = detectPort(cleanText);
 
   for (const line of lines) {
-    const match = line.match(
-      /([A-Za-z0-9\-\/\s]+?)\s*[—\-:]\s*(\$?\s*[\d,.\s]+)/
-    );
-    if (match) {
-      const gradeText = match[1].trim();
-      const priceText = match[2].trim();
+    const result =
+      tryPatternAt(line) ||
+      tryPatternDashColon(line);
 
-      if (gradeText.length < 2 || gradeText.length > 50) continue;
-
-      const expandedGrades = expandGrades(gradeText);
-      const priceUsd = normalizePrice(priceText);
-
-      if (expandedGrades.length > 0) {
+    if (result) {
+      const expandedGrades = expandGrades(result.grade);
+      const priceUsd = normalizePrice(result.price);
+      if (expandedGrades.length > 0 && priceUsd) {
         rows.push({
-          rawGradeText: gradeText,
+          rawGradeText: result.grade,
           expandedGrades,
-          rawPriceText: priceText,
+          rawPriceText: result.price,
           priceUsd,
           incoterm: detectIncoterm(line) || emailIncoterm,
           port: detectPort(line) || emailPort,
@@ -285,6 +281,54 @@ function parseTextFallback(text: string, warnings: string[]): ParsedPriceRow[] {
   }
 
   return rows;
+}
+
+/**
+ * Pattern: "... GRADE @ US $PRICE/mt CFR PORT"
+ * Extracts the last token before "@" that looks like a grade code.
+ */
+function tryPatternAt(line: string): { grade: string; price: string } | null {
+  const atIdx = line.indexOf("@");
+  if (atIdx === -1) return null;
+
+  const beforeAt = line.slice(0, atIdx).trim();
+  const afterAt = line.slice(atIdx + 1).trim();
+
+  // Price after @: optional "US", optional "$", digits, optional "/mt"
+  const priceMatch = afterAt.match(/^(?:US\s+)?\$?\s*([\d,]+(?:\.\d+)?)\s*\/\s*m[tT]/i);
+  if (!priceMatch) return null;
+
+  // Grade: last token before @ that starts with uppercase letter AND contains a digit
+  const tokens = beforeAt.split(/\s+/);
+  let grade: string | null = null;
+  for (let i = tokens.length - 1; i >= 0; i--) {
+    if (/^[A-Z][A-Za-z0-9\-\.]*\d/.test(tokens[i])) {
+      grade = tokens[i];
+      break;
+    }
+  }
+  if (!grade) return null;
+
+  return { grade, price: priceMatch[1] };
+}
+
+/**
+ * Pattern: "GRADE — PRICE" or "GRADE: PRICE" or "GRADE - PRICE"
+ */
+function tryPatternDashColon(line: string): { grade: string; price: string } | null {
+  const match = line.match(
+    /^([A-Za-z][A-Za-z0-9\-\/\s]{1,40}?)\s*[—\-:]\s*(\$?\s*[\d,.\s]+)/
+  );
+  if (!match) return null;
+
+  const grade = match[1].trim();
+  const price = match[2].trim();
+
+  if (grade.length < 2 || grade.length > 50) return null;
+  if (!/\d/.test(grade)) return null; // grade must contain a digit
+  if (!/\d{3,}/.test(price.replace(/[,.\s]/g, ""))) return null; // price must have 3+ digit number
+
+  return { grade, price };
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
