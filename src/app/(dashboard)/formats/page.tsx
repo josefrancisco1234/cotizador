@@ -35,6 +35,7 @@ export default function FormatsPage() {
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [htmlCaptured, setHtmlCaptured] = useState(false);
 
   useEffect(() => {
     loadExamples();
@@ -113,6 +114,23 @@ export default function FormatsPage() {
     setDeleting(null);
   }
 
+  // When pasting from Gmail (or any email client), the clipboard contains BOTH
+  // plain text AND HTML. A <textarea> normally discards the HTML and only keeps
+  // plain text — which loses the table structure. We intercept the paste event,
+  // grab the HTML version if it contains a table, and store that instead.
+  function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const html = e.clipboardData.getData("text/html");
+    if (html && (html.includes("<table") || html.includes("<tr"))) {
+      e.preventDefault();
+      setTestText(html);
+      setHtmlCaptured(true);
+      setParsedRows(null);
+      setParseWarnings([]);
+    } else {
+      setHtmlCaptured(false);
+    }
+  }
+
   return (
     <div>
       <div className="mb-6">
@@ -156,12 +174,23 @@ export default function FormatsPage() {
           </div>
         </div>
 
-        <textarea
-          value={testText}
-          onChange={(e) => setTestText(e.target.value)}
-          placeholder={`Pega aquí el texto del correo. Por ejemplo:\n\nBlue PC Sinopec PC02-20UR @ US $1985/mt CFR PECLL\nTransparent PC Sinopec PC02-30 @ US $1985/mt CFR PECLL\n\nO pega directamente el HTML del email.`}
-          className="w-full h-44 p-4 border border-gray-300 rounded-lg font-mono text-xs resize-y focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3"
-        />
+        <div className="relative mb-3">
+          <textarea
+            value={testText}
+            onChange={(e) => { setTestText(e.target.value); setHtmlCaptured(false); }}
+            onPaste={handlePaste}
+            placeholder={`Pega aquí el texto del correo (Ctrl+V).\n\nSi copiás desde Gmail con Ctrl+A → Ctrl+C, el HTML de la tabla se captura automáticamente.\n\nO pega líneas como:\nBlue PC Sinopec PC02-20UR @ US $1985/mt CFR PECLL`}
+            className="w-full h-44 p-4 border border-gray-300 rounded-lg font-mono text-xs resize-y focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          {htmlCaptured && (
+            <div className="mt-1 flex items-center gap-1.5 text-xs text-green-700">
+              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+              </svg>
+              HTML del correo capturado automáticamente — la tabla se procesará correctamente
+            </div>
+          )}
+        </div>
 
         <button
           onClick={parseText}
@@ -321,11 +350,14 @@ export default function FormatsPage() {
 
       {/* Instructions */}
       <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-800 space-y-1">
-        <p className="font-semibold">Formatos que el parser entiende actualmente:</p>
+        <p className="font-semibold">Cómo pegar un correo de Gmail:</p>
+        <p>1. Abrí el correo en Gmail y hacé <strong>Ctrl+A</strong> para seleccionar todo</p>
+        <p>2. <strong>Ctrl+C</strong> para copiar — el HTML de la tabla queda en el portapapeles</p>
+        <p>3. <strong>Ctrl+V</strong> en el textarea — el sistema captura el HTML automáticamente y verás el mensaje verde</p>
+        <p className="pt-1 font-semibold">Formatos que el parser entiende:</p>
         <p>• <strong>Tabla HTML con columna "Grade"</strong> — detecta automáticamente por header (Nhat Huy, CPI, etc.)</p>
         <p>• <strong>Texto con @</strong> — <code className="bg-blue-100 px-1 rounded">GRADO @ US $PRECIO/mt CFR PECLL</code></p>
         <p>• <strong>Texto con separador</strong> — <code className="bg-blue-100 px-1 rounded">GRADO — PRECIO</code> o <code className="bg-blue-100 px-1 rounded">GRADO: PRECIO</code></p>
-        <p className="pt-1 text-blue-600">Si un formato no funciona, pégalo aquí, reportá qué extrajo mal, y ajustamos el parser.</p>
       </div>
     </div>
   );
