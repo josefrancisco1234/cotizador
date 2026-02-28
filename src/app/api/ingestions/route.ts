@@ -89,16 +89,29 @@ export async function POST(request: NextRequest) {
 
     if (gradeRows && gradeRows.length > 0) {
       const gradeCodes = gradeRows.map((r: { grade_code: string }) => r.grade_code);
+      const norm = (s: string) => s.toUpperCase().replace(/[\s\-\.]/g, "");
+      const knownSet = new Set(gradeCodes.map(norm));
+
       const plainText = stripToText(rawHtml);
       const dictMatches = matchGradesInText(plainText, gradeCodes);
-      parseResult = { ...parseResult, rows: mergeParseRows(parseResult.rows, dictMatches) };
+      const merged = mergeParseRows(parseResult.rows, dictMatches);
 
-      // Save unknown grades silently to grades_to_review table
+      // Split: known vs unknown grades
+      const knownRows = merged.filter((r) =>
+        r.expandedGrades.some((g) => knownSet.has(norm(g))),
+      );
+      const unknownRows = merged.filter((r) =>
+        r.expandedGrades.every((g) => !knownSet.has(norm(g))),
+      );
+
+      // Save unknown grades silently — never show to client
       const unknown = findUnknownGrades(
-        parseResult.rows.map((r) => r.expandedGrades),
+        unknownRows.map((r) => r.expandedGrades),
         gradeCodes,
       );
       await saveUnknownGrades(supabase, TENANT_ID, unknown, "ingestion");
+
+      parseResult = { ...parseResult, rows: knownRows };
     }
   } catch (dictErr) {
     console.error("Dictionary scan failed:", (dictErr as Error).message);
