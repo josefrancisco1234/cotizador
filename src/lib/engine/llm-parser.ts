@@ -22,6 +22,10 @@ Extract ALL grade/price pairs from the email. For each item return:
   - If a cell contains "Icelene HB3553" the grade is "HB3553"
   - If a cell contains "LD220C mi2 with add" the grade is "LD220C"
   - If a cell contains "LLF-4118C mi1 with add" the grade is "LLF-4118C"
+  - SPECIAL: if the line says "FAMILY [usage] MI NUMBER US$PRICE/mt", the grade is FAMILY+NUMBER
+    Examples: "GPPS inj MI 14 US$1220/mt" → grade is "GPPS14"
+              "HIPS Inj MI 13 US$1320/mt" → grade is "HIPS13"
+              "LDPE film MI 2 US$980/mt"  → grade is "LDPE2"
 - price: numeric price in USD per metric ton (number only, no symbols)
 - incoterm: "CFR", "FOB", "CIF", or "DDP" (default "CFR" if not stated)
 - port: destination port, usually "CALLAO" for Peru (default "CALLAO")
@@ -31,7 +35,7 @@ Return ONLY valid JSON in this exact format (no markdown, no explanation):
 
 Rules:
 - Skip rows with no price or no grade code
-- Skip header rows, totals, notes
+- Skip header rows, totals, notes, shipment details, quantity/packaging info
 - If price has commas (1,000) treat as thousands separator → 1000
 - Prices are typically between 300 and 5000 USD/MT for plastics`;
 

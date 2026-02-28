@@ -261,6 +261,7 @@ function parseTextFallback(text: string, warnings: string[]): ParsedPriceRow[] {
 
   for (const line of lines) {
     const result =
+      tryPatternFamilyMI(line) ||
       tryPatternAt(line) ||
       tryPatternDashColon(line);
 
@@ -285,6 +286,25 @@ function parseTextFallback(text: string, warnings: string[]): ParsedPriceRow[] {
   }
 
   return rows;
+}
+
+/**
+ * Pattern: "QUANTITY UNIT FAMILY [usage text] MI NUMBER US$PRICE/mt INCOTERM PORT"
+ * Example: "128.6 MT GPPS inj MI 14 US$1220/mt CFR PECLL"
+ * Grade is reconstructed as FAMILY + NUMBER (e.g. "GPPS14").
+ */
+function tryPatternFamilyMI(line: string): { grade: string; price: string } | null {
+  // Must contain "MI" followed by a number and a price with /mt
+  const match = line.match(
+    /\b(GPPS|HIPS|LDPE|HDPE|LLDPE|LLDPE|PP|PVC|PET|EVA|ABS|SAN|PMMA|PC|PA|POM|TPE|TPU)\b[^$]*?\bMI\s*(\d+)[^$]*?US\$?([\d,]+(?:\.\d+)?)\s*\/\s*m[tT]/i,
+  );
+  if (!match) return null;
+
+  const family = match[1].toUpperCase();
+  const miNumber = match[2];
+  const price = match[3];
+
+  return { grade: family + miNumber, price };
 }
 
 /**
